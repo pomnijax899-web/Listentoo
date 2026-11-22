@@ -1,6 +1,5 @@
 // Catalog providers: Deezer (full commercial catalog via JSONP), Audius (full indie tracks),
-// LRCLIB (synced lyrics) and YouTube Data API (optional, resolves full-length versions).
-import { store } from './util.js';
+// LRCLIB (synced lyrics). Full-length commercial playback is resolved server-side (cloud.js).
 
 const APP = 'Listentoo';
 const mem = new Map();
@@ -127,31 +126,24 @@ export async function lyrics(t) {
   }, 36e5);
 }
 
-/* ---------------- YouTube (optional full-length playback) ---------------- */
-const ytCache = store.get('ytmap', {});
-export const youtube = {
-  key: () => store.get('settings', {}).ytKey || '',
-  async resolve(t) {
-    if (ytCache[t.id]) return ytCache[t.id];
-    const key = this.key(); if (!key) return null;
-    const q = new URLSearchParams({
-      part: 'snippet', type: 'video', maxResults: '5', videoEmbeddable: 'true', videoCategoryId: '10',
-      q: `${t.artist} ${t.title} audio`, key
-    });
-    const r = await fetch('https://www.googleapis.com/youtube/v3/search?' + q);
-    if (!r.ok) {
-      const e = await r.json().catch(() => ({}));
-      throw new Error(e.error?.errors?.[0]?.reason === 'quotaExceeded' ? 'Cuota diaria de YouTube agotada' : 'YouTube: clave no válida o sin acceso');
-    }
-    const items = (await r.json()).items || [];
-    const want = t.title.toLowerCase().split(/\s+/)[0];
-    const pick = items.find(i => /topic|vevo|official/i.test(i.snippet.channelTitle) && i.snippet.title.toLowerCase().includes(want)) || items[0];
-    const vid = pick?.id?.videoId || null;
-    if (vid) { ytCache[t.id] = vid; const keys = Object.keys(ytCache); if (keys.length > 3000) delete ytCache[keys[0]]; store.set('ytmap', ytCache); }
-    return vid;
-  },
-  async test(key) {
-    const r = await fetch('https://www.googleapis.com/youtube/v3/search?' + new URLSearchParams({ part: 'id', q: 'test', maxResults: '1', type: 'video', key }));
-    return r.ok;
-  }
-};
+/* ---------------- references -> playable track (cloud history) ---------------- */
+export function trackFromRef(r) {
+  const id = r.track_id || r.id || '';
+  if (id.startsWith('dz:')) return { id, src: 'deezer', dz: +id.slice(3), title: r.title, artist: r.artist, cover: r.cover || '', coverXL: (r.cover || '').replace(/\/\d+x\d+-/, '/1000x1000-'), dur: 0 };
+  if (id.startsWith('au:')) return { id, src: 'audius', title: r.title, artist: r.artist, cover: r.cover || '', coverXL: r.cover || '', dur: 0, url: `${AUD}/tracks/${id.slice(3)}/stream?app_name=${APP}`, full: true };
+  return null;
+}
+
+/* ---------------- moods ---------------- */
+export const MOODS = [
+  { id: 'energia', name: 'Energía', icon: '⚡', q: 'workout', c: ['#ff7a18', '#ff2d55'] },
+  { id: 'calma', name: 'Calma', icon: '🌙', q: 'chill', c: ['#3a7bd5', '#6dd5ed'] },
+  { id: 'fiesta', name: 'Fiesta', icon: '🪩', q: 'party hits', c: ['#f953c6', '#b91d73'] },
+  { id: 'enfoque', name: 'Enfoque', icon: '🎧', q: 'focus', c: ['#11998e', '#38ef7d'] },
+  { id: 'romance', name: 'Romance', icon: '💜', q: 'love songs', c: ['#c471f5', '#fa71cd'] },
+  { id: 'nostalgia', name: 'Nostalgia', icon: '📼', q: '80s hits', c: ['#f7971e', '#ffd200'] },
+  { id: 'latino', name: 'Latino', icon: '🔥', q: 'reggaeton', c: ['#ee0979', '#ff6a00'] },
+  { id: 'lluvia', name: 'Día de lluvia', icon: '🌧️', q: 'rainy day', c: ['#536976', '#292e49'] },
+  { id: 'indie', name: 'Indie', icon: '🌿', q: 'indie', c: ['#56ab2f', '#a8e063'] },
+  { id: 'dormir', name: 'Dormir', icon: '😴', q: 'sleep', c: ['#141e30', '#243b55'] }
+];
