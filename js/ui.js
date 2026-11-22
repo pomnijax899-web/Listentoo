@@ -49,7 +49,7 @@ export function trackList(tracks, { label = '', href = '', album = true, cover =
     const liked = lib.isLiked(t), playing = curId === t.id;
     return `<div class="trow${playing ? ' playing' : ''}" data-i="${i}" data-id="${esc(t.id)}"${draggable ? ' draggable="true"' : ''} tabindex="0" style="--d:${Math.min(i, 14) * 22}ms">
       <div class="c-num">${numbers ? `<span class="n">${String(i + 1).padStart(2, '0')}</span>` : ''}<span class="eqw">${eqBars}</span><span class="rowplay">${icons.play}</span></div>
-      <div class="c-title">${cover ? img(t.cover, 'tcover') : ''}<div class="tt"><div class="tname ellipsis">${esc(t.title)}</div><div class="tart ellipsis">${explicit(t)}${t.artistId ? `<a href="#/artista/${t.artistId}">${esc(t.artist)}</a>` : esc(t.artist)}${t.src === 'audius' ? '<span class="badge-full" title="Canción completa">Completa</span>' : ''}</div></div></div>
+      <div class="c-title">${cover ? img(t.cover, 'tcover') : ''}<div class="tt"><div class="tname ellipsis">${esc(t.title)}</div><div class="tart ellipsis">${explicit(t)}${t.artistId ? `<a href="#/artista/${t.artistId}">${esc(t.artist)}</a>` : esc(t.artist)}${t.live ? '<span class="badge-live">En directo</span>' : (t.src === 'audius' || t.src === 'jamendo') ? '<span class="badge-full" title="Canción completa">Completa</span>' : ''}</div></div></div>
       ${album ? `<div class="c-album ellipsis">${t.albumId ? `<a href="#/album/${t.albumId}">${esc(t.album)}</a>` : esc(t.album || '')}</div>` : ''}
       ${added ? `<div class="c-added">${t.added ? new Date(t.added).toLocaleDateString('es', { day: 'numeric', month: 'short' }) : ''}</div>` : ''}
       <div class="c-like"><button class="likebtn${liked ? ' on' : ''}" data-act="like" aria-label="Me gusta">${liked ? icons.heartOn : icons.heart}</button></div>
@@ -80,6 +80,18 @@ export const shelf = (title, items, opts = {}) => items?.length ? `<section clas
 export function trackCards(tracks, label) {
   const k = registerList(tracks, { label });
   return `<div class="hscroll" data-list="${k}">${tracks.map((t, i) => `<div class="tcard" data-track-i="${i}" tabindex="0"><div class="p-art">${img(t.cover, 'art')}<span class="fab">${icons.play}</span></div><div class="ct ellipsis">${esc(t.title)}</div><div class="cs ellipsis">${esc(t.artist)}</div></div>`).join('')}</div>`;
+}
+
+/* live radio stations as playable cards */
+const initials = n => (n || '?').replace(/[^\p{L}\p{N} ]/gu, '').split(' ').filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '♪';
+export const stationArt = (s, cls = '') => `<div class="st-art ${cls}" style="--h:${hueOf(s.title)}"><b>${esc(initials(s.title))}</b>${s.cover ? `<img class="st-logo" src="${esc(s.cover)}" alt="" loading="lazy" decoding="async" onload="if(this.naturalWidth<24)this.hidden=true" onerror="this.hidden=true">` : ''}</div>`;
+export const hueOf = str => [...(str || '')].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
+export function stationCards(list, label, { wrap = false } = {}) {
+  if (!list.length) return '';
+  const k = registerList(list, { label, href: '#/radio' });
+  return `<div class="${wrap ? 'cgrid' : 'hscroll'} stations" data-list="${k}">${list.map((s, i) => `<div class="scard" data-track-i="${i}" data-id="${esc(s.id)}" tabindex="0">
+    <div class="p-art">${stationArt(s)}<span class="live-dot">EN DIRECTO</span><span class="fab">${icons.play}</span></div>
+    <div class="ct ellipsis">${esc(s.title)}</div><div class="cs ellipsis">${esc(s.artist)}</div></div>`).join('')}</div>`;
 }
 
 export function mosaic(tracks, cls = 'art') {
@@ -117,6 +129,13 @@ export async function share(title, hash) {
 }
 
 export function trackMenu(t, at, { playlistId } = {}) {
+  if (t.live) {
+    return showMenu([
+      { icon: lib.isLiked(t) ? '♥' : '♡', text: lib.isLiked(t) ? 'Quitar de tus emisoras' : 'Guardar emisora', run: () => lib.toggleLike(t) },
+      { icon: '☰', text: 'Añadir a la cola', run: () => player.addToQueue(t) },
+      { icon: '📻', text: 'Ir a la radio', run: () => { location.hash = '#/radio'; } }
+    ], at);
+  }
   const items = [
     { icon: '⏭', text: 'Que suene a continuación', run: () => player.playNext(t) },
     { icon: '☰', text: 'Añadir a la cola', run: () => player.addToQueue(t) },
