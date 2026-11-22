@@ -64,22 +64,22 @@ export const hrefOf = item => ({ artist: `#/artista/${item.id}`, album: `#/album
 export function card(item, { sub } = {}) {
   const k = item.kind, title = item.name || item.title, href = hrefOf(item);
   const fab = `<button class="fab" data-act="playcoll" aria-label="Reproducir ${esc(title)}">${icons.play}</button>`;
-  if (k === 'artist') return `<a class="bubble" href="${href}" data-kind="artist" data-id="${esc(item.id)}">
+  if (k === 'artist') return `<a class="bubble" data-tilt href="${href}" data-kind="artist" data-id="${esc(item.id)}">
     <div class="bub-art"><span class="orbit-ring"></span>${img(item.pic || item.cover, 'round')}${fab}</div>
     <div class="ct ellipsis">${esc(title)}</div><div class="cs">${esc(sub ?? (item.fans ? fmtNum(item.fans) + ' fans' : 'Artista'))}</div></a>`;
-  if (k === 'album') return `<a class="vcard" href="${href}" data-kind="album" data-id="${esc(item.id)}">
+  if (k === 'album') return `<a class="vcard" data-tilt href="${href}" data-kind="album" data-id="${esc(item.id)}">
     <div class="v-art"><span class="vinyl" style="--lbl:url('${esc(item.cover)}')"></span>${img(item.cover, 'sleeve')}${fab}</div>
     <div class="ct ellipsis">${esc(title)}</div><div class="cs ellipsis">${esc(sub ?? [item.year, item.artist].filter(Boolean).join(' · '))}</div></a>`;
   const art = k === 'playlist' ? mosaic(item.tracks || []) : k === 'liked' ? `<div class="art liked-art">${icons.heartOn}</div>` : img(item.cover, 'art');
   const s = sub ?? (k === 'dzplaylist' ? `Por ${item.by}` : k === 'playlist' ? `${item.tracks?.length || 0} canciones` : '');
-  return `<a class="pcard" href="${href}" data-kind="${k}" data-id="${esc(item.id)}"><div class="p-art">${art}${fab}</div>
+  return `<a class="pcard" data-tilt href="${href}" data-kind="${k}" data-id="${esc(item.id)}"><div class="p-art">${art}${fab}</div>
     <div class="ct ellipsis">${esc(title)}</div><div class="cs ellipsis2">${esc(s)}</div></a>`;
 }
 export const shelf = (title, items, opts = {}) => items?.length ? `<section class="shelf"><div class="shelf-head"><h2>${esc(title)}</h2>${opts.more ? `<a class="more" href="${opts.more}">Ver todo</a>` : ''}</div><div class="${opts.wrap ? 'cgrid' : 'hscroll'}">${items.map(i => card(i, opts)).join('')}</div></section>` : '';
 
 export function trackCards(tracks, label) {
   const k = registerList(tracks, { label });
-  return `<div class="hscroll" data-list="${k}">${tracks.map((t, i) => `<div class="tcard" data-track-i="${i}" tabindex="0"><div class="p-art">${img(t.cover, 'art')}<span class="fab">${icons.play}</span></div><div class="ct ellipsis">${esc(t.title)}</div><div class="cs ellipsis">${esc(t.artist)}</div></div>`).join('')}</div>`;
+  return `<div class="hscroll" data-list="${k}">${tracks.map((t, i) => `<div class="tcard" data-tilt data-track-i="${i}" tabindex="0"><div class="p-art">${img(t.cover, 'art')}<span class="fab">${icons.play}</span></div><div class="ct ellipsis">${esc(t.title)}</div><div class="cs ellipsis">${esc(t.artist)}</div></div>`).join('')}</div>`;
 }
 
 /* live radio stations as playable cards */
@@ -89,7 +89,7 @@ export const hueOf = str => [...(str || '')].reduce((h, c) => (h * 31 + c.charCo
 export function stationCards(list, label, { wrap = false } = {}) {
   if (!list.length) return '';
   const k = registerList(list, { label, href: '#/radio' });
-  return `<div class="${wrap ? 'cgrid' : 'hscroll'} stations" data-list="${k}">${list.map((s, i) => `<div class="scard" data-track-i="${i}" data-id="${esc(s.id)}" tabindex="0">
+  return `<div class="${wrap ? 'cgrid' : 'hscroll'} stations" data-list="${k}">${list.map((s, i) => `<div class="scard" data-tilt data-track-i="${i}" data-id="${esc(s.id)}" tabindex="0">
     <div class="p-art">${stationArt(s)}<span class="live-dot">EN DIRECTO</span><span class="fab">${icons.play}</span></div>
     <div class="ct ellipsis">${esc(s.title)}</div><div class="cs ellipsis">${esc(s.artist)}</div></div>`).join('')}</div>`;
 }

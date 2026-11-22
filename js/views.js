@@ -5,6 +5,7 @@ import { lib } from './library.js';
 import { player } from './player.js';
 import { cloud } from './cloud.js';
 import { THEMES, applyTheme, resolveTheme } from './themes.js';
+import { fx } from './fx.js';
 import { icons, img, trackList, card, shelf, mosaic, skeleton, skeletonShelves, errorState, registerList, prompt, confirmBox, share, showMenu, modal, trackCards, avatar, hrefOf, stationCards } from './ui.js';
 
 const view = () => $('#view');
@@ -56,18 +57,24 @@ export async function home() {
   const fav = Object.entries(counts).sort((a, b) => b[1].n - a[1].n)[0];
   const ann = cloud.announcement;
   view().innerHTML = `
-    <section class="hello">
-      <div class="date">${esc(today)}</div>
-      <h1 class="greet">${greeting()}${name ? `, <span class="grad">${esc(name)}</span>` : ''}</h1>
-      <p class="muted">¿Qué te apetece escuchar hoy?</p>
+    <section class="hello-wrap">
+      <div class="hello">
+        <div class="hud-tag"><span class="blink"></span>${esc(today)}</div>
+        <h1 class="greet">${greeting()}${name ? `,<br><span class="grad">${esc(name)}</span>` : ''}</h1>
+        <p class="muted">¿Qué te apetece escuchar hoy?</p>
+      </div>
+      <section class="ring3d" aria-label="Álbumes del momento">
+        <div class="ring-track" style="--n:12">${Array.from({ length: 12 }, (_, i) => `<div class="ring-item sk" style="--i:${i}"></div>`).join('')}</div>
+        <div class="ring-floor"></div><div class="ring-hint">Arrastra para girar</div>
+      </section>
     </section>
     ${ann ? `<div class="announce ${esc(ann.tone || 'info')}"><span class="dot"></span><p>${esc(ann.text)}</p></div>` : ''}
     <div class="moods">${MOODS.map(m => `<a class="mood" href="#/mood/${m.id}" style="--m1:${m.c[0]};--m2:${m.c[1]}"><span>${m.icon}</span>${esc(m.name)}</a>`).join('')}</div>
     ${cloud.signedIn ? '' : `<a class="cta" href="#/cuenta"><div><b>Crea tu cuenta gratis</b><p>Tu biblioteca y tus emisoras en todos tus dispositivos, y playlists para compartir.</p></div><span class="pill primary">Empezar</span></a>`}
     <div class="bento" id="bento">
-      <a class="tile t-top" href="#/top"><div class="t-collage" id="topCollage">${Array.from({ length: 6 }, () => '<i class="sk"></i>').join('')}</div><div class="t-body"><div class="eyebrow">Lista del día</div><h2>Top 50 Global</h2><p id="topSub" class="muted">Lo más escuchado ahora mismo</p></div><button class="fab show" id="topPlay" aria-label="Reproducir Top 50">${icons.play}</button></a>
-      <button class="tile t-mix" id="mixTile" style="--img:url('${esc(fav?.[1].cover || '')}')"><div class="t-glow"></div><div class="t-body"><div class="eyebrow">${fav ? 'Tu mezcla' : 'Descubre'}</div><h2>${fav ? `${esc(fav[1].name)} y más` : 'Algo nuevo para ti'}</h2><p class="muted">${fav ? 'Una radio infinita a partir de lo que más escuchas' : 'Una radio sorpresa con artistas en tendencia'}</p></div><span class="fab show">${icons.radio}</span></button>
-      <a class="tile t-liked" href="#/megusta"><div class="liked-art">${icons.heartOn}</div><div><h3>Me gusta</h3><p class="muted">${plural(lib.songs.length, 'canción', 'canciones')}</p></div></a>
+      <a class="tile t-top" data-tilt href="#/top"><div class="t-collage" id="topCollage">${Array.from({ length: 6 }, () => '<i class="sk"></i>').join('')}</div><div class="t-body"><div class="eyebrow">Lista del día</div><h2>Top 50 Global</h2><p id="topSub" class="muted">Lo más escuchado ahora mismo</p></div><button class="fab show" id="topPlay" aria-label="Reproducir Top 50">${icons.play}</button></a>
+      <button class="tile t-mix" data-tilt id="mixTile" style="--img:url('${esc(fav?.[1].cover || '')}')"><div class="t-glow"></div><div class="t-body"><div class="eyebrow">${fav ? 'Tu mezcla' : 'Descubre'}</div><h2>${fav ? `${esc(fav[1].name)} y más` : 'Algo nuevo para ti'}</h2><p class="muted">${fav ? 'Una radio infinita a partir de lo que más escuchas' : 'Una radio sorpresa con artistas en tendencia'}</p></div><span class="fab show">${icons.radio}</span></button>
+      <a class="tile t-liked" data-tilt href="#/megusta"><div class="liked-art">${icons.heartOn}</div><div><h3>Me gusta</h3><p class="muted">${plural(lib.songs.length, 'canción', 'canciones')}</p></div></a>
       <div class="tile t-recent"><div class="eyebrow">Vuelve a escuchar</div><div id="recentMini">${lib.recent.slice(0, 4).map((t, i) => `<button class="mini-row" data-ri="${i}">${img(t.cover)}<span class="ellipsis"><b>${esc(t.title)}</b><small>${esc(t.artist)}</small></span></button>`).join('') || '<p class="muted small">Lo que escuches aparecerá aquí.</p>'}</div></div>
     </div>
     ${lib.recent.length > 4 ? `<section class="shelf"><div class="shelf-head"><h2>Escuchado recientemente</h2></div>${trackCards(lib.recent.slice(0, 16), 'Escuchado recientemente')}</section>` : ''}
@@ -89,6 +96,13 @@ export async function home() {
     const [tracks, albums, artists, playlists] = await Promise.all([deezer.chartTracks(0, 50), deezer.chartAlbums(), deezer.chartArtists(), deezer.chartPlaylists()]);
     if (stale(s)) return;
     $('#topCollage').innerHTML = tracks.slice(0, 6).map(t => img(t.cover)).join('');
+    const ringAlbums = albums.slice(0, 12);
+    const rt = view().querySelector('.ring-track');
+    if (rt && ringAlbums.length) {
+      rt.style.setProperty('--n', ringAlbums.length);
+      rt.innerHTML = ringAlbums.map((a, i) => `<a class="ring-item" href="#/album/${a.id}" style="--i:${i}" draggable="false"><img src="${esc((a.coverXL || a.cover || '').replace('1000x1000', '500x500'))}" alt="" draggable="false" decoding="async"><span class="ri-meta"><b class="ellipsis">${esc(a.title)}</b><small class="ellipsis">${esc(a.artist)}</small></span></a>`).join('');
+      const ring = rt.closest('.ring3d'); ring._front = -1;
+    }
     $('#topSub').textContent = tracks.slice(0, 3).map(t => t.artist).join(', ') + ' y más';
     $('#topPlay').onclick = e => { e.preventDefault(); e.stopPropagation(); player.playList(tracks, 0, { label: 'Top 50 Global', href: '#/top' }); };
     const followed = lib.artists.slice(0, 2);
@@ -112,7 +126,7 @@ export async function explore(q = '') {
   if (!q) {
     view().innerHTML = `<div class="page-search"><input id="pageSearch" type="search" placeholder="Artistas, canciones, álbumes…" autocomplete="off" enterkeyhint="search"></div>
       <h1>Explorar</h1>
-      <h2>Para cada momento</h2><div class="mood-grid">${MOODS.map(m => `<a class="mood-card" href="#/mood/${m.id}" style="--m1:${m.c[0]};--m2:${m.c[1]}"><span class="mi">${m.icon}</span><b>${esc(m.name)}</b></a>`).join('')}</div>
+      <h2>Para cada momento</h2><div class="mood-grid">${MOODS.map(m => `<a class="mood-card" data-tilt href="#/mood/${m.id}" style="--m1:${m.c[0]};--m2:${m.c[1]}"><span class="mi">${m.icon}</span><b>${esc(m.name)}</b></a>`).join('')}</div>
       <h2>Géneros</h2><div class="genres" id="genres">${Array.from({ length: 12 }, () => '<div class="genre sk"></div>').join('')}</div>`;
     bindPageSearch();
     try {
@@ -145,7 +159,7 @@ export async function explore(q = '') {
       const topIsArtist = !!exact || (!T.length && A.length);
       const tp = exact || (T[0] && !topIsArtist ? T[0] : A[0]);
       box.innerHTML = `<div class="top-grid">
-        <section><h2>Lo más destacado</h2>${tp ? `<a class="topres" href="${topIsArtist ? '#/artista/' + tp.id : tp.albumId ? '#/album/' + tp.albumId : '#/explorar'}" ${topIsArtist ? `data-kind="artist" data-id="${tp.id}"` : ''}>
+        <section><h2>Lo más destacado</h2>${tp ? `<a class="topres" data-tilt href="${topIsArtist ? '#/artista/' + tp.id : tp.albumId ? '#/album/' + tp.albumId : '#/explorar'}" ${topIsArtist ? `data-kind="artist" data-id="${tp.id}"` : ''}>
           ${img(topIsArtist ? tp.picXL || tp.pic : tp.coverXL || tp.cover, topIsArtist ? 'round' : '')}<div><div class="tag">${topIsArtist ? 'Artista' : 'Canción'}</div><div class="tr-name ellipsis2">${esc(tp.name || tp.title)}</div><div class="muted">${topIsArtist ? fmtNum(tp.fans) + ' fans' : esc(tp.artist)}</div></div>
           <button class="fab show" data-act="${topIsArtist ? 'playcoll' : 'playtop'}" aria-label="Reproducir">${icons.play}</button></a>` : ''}</section>
         <section><h2>Canciones</h2>${trackList(T.slice(0, 5), { label: lbl, album: false, numbers: false })}</section>
@@ -482,6 +496,7 @@ export async function profile() {
           <div class="row-btns"><button class="pill ghost" id="pfPw">Cambiar contraseña</button><a class="pill ghost" href="#/temas">Temas</a>${cloud.isAdmin ? '<a class="pill ghost" href="#/admin">Panel de admin</a>' : ''}</div></div>
         <div class="glass-card"><h3>Reproducción</h3>
           <label class="switch"><span><b>Reproducción automática</b><small>Al terminar, sigue con canciones parecidas.</small></span><input type="checkbox" id="pfAuto" ${lib.settings.autoplay ? 'checked' : ''}><i></i></label>
+          <label class="switch"><span><b>Canciones completas vía YouTube</b><small>Usa el reproductor oficial, aislado: nunca abre pestañas ni ventanas.</small></span><input type="checkbox" id="pfYt" ${lib.settings.youtube !== false ? 'checked' : ''}><i></i></label>
           <label class="switch"><span><b>Notificaciones de canción</b><small>Aviso con controles al cambiar de canción cuando la app está en segundo plano.</small></span><input type="checkbox" id="pfNotify" ${lib.settings.notify ? 'checked' : ''}><i></i></label></div>
         <div class="glass-card"><h3>Datos</h3><p class="muted small">Tu biblioteca se guarda cifrada en tránsito en tu cuenta y se sincroniza en tiempo real.</p>
           <div class="row-btns"><button class="pill ghost" id="pfExp">Exportar copia</button><button class="pill ghost" id="pfImp">Importar copia</button><button class="pill ghost" id="pfHist">Borrar historial</button></div>
@@ -503,6 +518,7 @@ export async function profile() {
   $('#hueBtn').onclick = () => { hue.value = (+hue.value + 47) % 360; hue.oninput(); hue.onchange(); };
   $('#pfPw').onclick = () => changePassword();
   $('#pfAuto').onchange = e => lib.setSetting('autoplay', e.target.checked);
+  $('#pfYt').onchange = e => lib.setSetting('youtube', e.target.checked);
   $('#pfNotify').onchange = async e => {
     if (e.target.checked) {
       if (!('Notification' in window)) { toast('Este dispositivo no admite notificaciones web'); e.target.checked = false; return; }
@@ -540,7 +556,7 @@ export function themes() {
   const swatch = (id, t) => {
     const r = id === 'sistema' ? null : t;
     const style = r ? `--pb:${r.bg};--pi:${r.ink};--ps:${r.sub};--pa:${r.accent};--p1:${r.aur[0]};--p2:${r.aur[1]};--p3:${r.aur[2]}` : '';
-    return `<button class="theme-card${s.theme === id ? ' on' : ''}${id === 'sistema' ? ' sys' : ''}" data-theme="${id}" style="${style}">
+    return `<button data-tilt class="theme-card${s.theme === id ? ' on' : ''}${id === 'sistema' ? ' sys' : ''}" data-theme="${id}" style="${style}">
       <div class="tc-prev"><i class="tb1"></i><i class="tb2"></i><i class="tb3"></i><div class="tc-ui"><span class="tc-isle"></span><span class="tc-line l1"></span><span class="tc-line l2"></span><span class="tc-cards"><b></b><b></b><b></b></span><span class="tc-dock"></span></div></div>
       <div class="tc-name">${esc(t.name)}${s.theme === id ? ` ${icons.check}` : ''}</div><small>${id === 'sistema' ? 'Claro u oscuro según tu dispositivo' : t.mode === 'light' ? 'Claro' : 'Oscuro'}</small></button>`;
   };
@@ -548,11 +564,11 @@ export function themes() {
     <div class="theme-grid">${Object.entries(THEMES).map(([id, t]) => swatch(id, t)).join('')}</div>
     <section class="glass-card opts"><h3>Ajustes visuales</h3>
       <label class="switch"><span><b>Color dinámico</b><small>El fondo y el acento toman el color de la portada que suena.</small></span><input type="checkbox" data-opt="dynamic" ${s.dynamic ? 'checked' : ''}><i></i></label>
-      <label class="switch"><span><b>Aurora en movimiento</b><small>Anima suavemente el fondo. Desactívalo para ahorrar batería.</small></span><input type="checkbox" data-opt="motion" ${s.motion ? 'checked' : ''}><i></i></label>
+      <label class="switch"><span><b>Efectos 3D</b><small>Nebulosa en tiempo real, tarjetas con relieve y transiciones. Se apaga sola en equipos modestos.</small></span><input type="checkbox" data-opt="effects" ${s.effects !== false ? 'checked' : ''}><i></i></label>
       <label class="switch"><span><b>Vinilo girando</b><small>La portada gira en el reproductor mientras suena.</small></span><input type="checkbox" data-opt="spin" ${s.spin ? 'checked' : ''}><i></i></label>
     </section>`;
   $$('.theme-card', view()).forEach(b => b.onclick = () => { lib.setSetting('theme', b.dataset.theme); applyTheme(); themes(); });
-  $$('[data-opt]', view()).forEach(i => i.onchange = () => { lib.setSetting(i.dataset.opt, i.checked); applyTheme(); });
+  $$('[data-opt]', view()).forEach(i => i.onchange = () => { if (i.dataset.opt === 'effects' && i.checked) fx.reset(); lib.setSetting(i.dataset.opt, i.checked); applyTheme(); });
   void resolveTheme;
 }
 
@@ -573,6 +589,13 @@ export async function admin() {
       <div class="kpis">${kpi(o.users, 'usuarios')}${kpi(o.users_7d, 'nuevos (7 días)')}${kpi(o.active_24h, 'activos hoy')}${kpi(o.plays_24h, 'escuchas hoy')}${kpi(o.plays, 'escuchas totales')}${kpi(o.playlists, 'playlists')}</div>
       <section class="panel-grid">
         <div class="glass-card wide"><h3>Escuchas · últimos 14 días</h3><div class="bars">${days.map(d => `<div class="bar" style="--v:${d.n / max}" title="${d.d}: ${d.n}"><i></i><small>${d.d.slice(8)}</small></div>`).join('')}</div></div>
+        <div class="glass-card"><h3>Canciones completas · YouTube</h3>
+          <p class="status ${o.youtube_configured ? 'ok' : 'warn'}">${o.youtube_configured ? '● Activo para todos los usuarios' : '● Falta la clave: el catálogo suena como vista previa'}</p>
+          <p class="muted small">Las canciones comerciales suenan completas con el reproductor oficial de YouTube, aislado dentro de la app: no puede abrir pestañas ni ventanas. La clave se guarda solo en el servidor. Cada canción nueva cuesta ~101 unidades de cuota (10.000/día gratis ≈ 99 canciones nuevas al día) y las ya encontradas se reutilizan para todos, incluidos invitados.</p>
+          <ol class="steps"><li><a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener">Activa «YouTube Data API v3»</a> en Google Cloud.</li><li>En <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Credenciales</a>, crea una clave de API y restríngela a esa API.</li><li>Pégala aquí y pulsa «Probar».</li></ol>
+          <div class="row"><input class="field" id="ytKey" type="password" placeholder="AIza…" autocomplete="off" spellcheck="false"><button class="pill primary" id="ytSave">Guardar</button></div>
+          <div class="row-btns"><button class="pill ghost sm" id="ytTest">Probar con una canción</button>${o.youtube_configured ? '<button class="pill ghost sm" id="ytDel">Quitar clave</button>' : ''}</div>
+          <p class="small muted" id="ytMsg">${fmtNum(o.matches)} canciones completas en caché · ${fmtNum(o.lookups_today)} búsquedas hoy</p></div>
         <div class="glass-card"><h3>Fuentes de audio</h3>
           <ul class="sources">
             <li><b>Catálogo (Deezer)</b><span class="status ok">● Activo</span><small>Búsqueda, artistas, álbumes y vistas previas de 30 s.</small></li>
@@ -593,6 +616,17 @@ export async function admin() {
       <section class="glass-card"><h3>Usuarios (${users.length})</h3><div class="table-wrap"><table class="utable"><thead><tr><th>Usuario</th><th>Correo</th><th>Alta</th><th>Último acceso</th><th>Escuchas</th><th>Estado</th></tr></thead><tbody>
         ${users.map(u => `<tr><td>${avatar(u.display_name || u.email, (u.email.length * 47) % 360, 'sm')} ${esc(u.display_name || '—')}${u.is_admin ? ' <span class="tag">Admin</span>' : ''}</td><td>${esc(u.email)}</td><td>${new Date(u.created_at).toLocaleDateString('es')}</td><td>${u.last_sign_in_at ? new Date(u.last_sign_in_at).toLocaleString('es', { dateStyle: 'short', timeStyle: 'short' }) : '—'}</td><td>${u.plays}</td><td>${u.confirmed ? '<span class="ok-t">Confirmado</span>' : '<span class="warn-t">Pendiente</span>'}</td></tr>`).join('')}
       </tbody></table></div></section>`;
+    const ytMsg = $('#ytMsg');
+    $('#ytSave').onclick = async () => {
+      const k = $('#ytKey').value.trim(); if (!/^AIza[0-9A-Za-z_-]{30,}$/.test(k)) { ytMsg.textContent = 'Esa clave no parece válida (empieza por «AIza»).'; return; }
+      try { await cloud.admin.setYoutubeKey(k); toast('Clave guardada en el servidor'); admin(); } catch (e) { ytMsg.textContent = e.message; }
+    };
+    $('#ytDel')?.addEventListener('click', async () => { if (await confirmBox('¿Quitar la clave?', 'Las canciones nuevas volverán a sonar como vista previa; las ya encontradas seguirán completas.', 'Quitar')) { await cloud.admin.setYoutubeKey(''); admin(); } });
+    $('#ytTest').onclick = async () => {
+      ytMsg.textContent = 'Probando…'; store.del('ytmap2');
+      const r = await cloud.resolve({ id: 'dz:3135553', title: 'One More Time', artist: 'Daft Punk', dur: 320 });
+      ytMsg.textContent = r.videoId ? `✔ Funciona: vídeo ${r.videoId} listo para sonar completo` : `✕ ${({ not_configured: 'No hay clave configurada.', quota: 'Cuota de YouTube agotada por hoy.', youtube: 'YouTube rechazó la clave: revisa que la API esté activada.', not_found: 'No se encontró la canción.', disabled: 'Tienes YouTube desactivado en tu perfil.' })[r.error] || r.message || r.error}`;
+    };
     const jmMsg = $('#jmMsg');
     $('#jmSave').onclick = async () => {
       const id = $('#jmId').value.trim(); if (!/^[a-z0-9]{6,40}$/i.test(id)) { jmMsg.textContent = 'Ese Client ID no parece válido.'; return; }
