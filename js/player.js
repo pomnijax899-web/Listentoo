@@ -1,7 +1,9 @@
-// Playback engine: one native <audio> element for every source (catalog previews, full Audius
-// and Jamendo tracks, live radio and local files). Native audio keeps playing with the screen
-// locked and publishes Media Session metadata, so the OS shows it in the iOS Dynamic Island /
-// lock screen, HyperOS & Android media notifications and desktop media hubs.
+// Playback engine with two outputs behind one interface:
+//  • native <audio>: catalog previews, official full uploads (Audius), Jamendo, live radio, local files.
+//    It keeps playing with the screen locked and drives the iOS Dynamic Island, HyperOS / Android
+//    media notifications and desktop media hubs through the Media Session API.
+//  • YouTube's official embedded player for full-length catalog songs, isolated in a sandboxed
+//    iframe with no popup / top-navigation permissions, so it can never open tabs or windows.
 // Also: context + manual queue, shuffle/repeat, autoplay radio and a sleep timer.
 import { store, idb, toast } from './util.js';
 import { deezer, findFull, radio } from './api.js';
@@ -11,6 +13,45 @@ import { cloud } from './cloud.js';
 const audio = new Audio();
 audio.preload = 'auto';
 audio.setAttribute('playsinline', '');
+
+const yt = {
+  ready: null, player: null, frame: null,
+  load() {
+    if (this.ready) return this.ready;
+    this.ready = new Promise((res, rej) => {
+      const host = document.getElementById('ytHost');
+      const f = document.createElement('iframe');
+      f.id = 'ytFrameEl'; f.title = 'Reproductor de YouTube'; f.tabIndex = -1;
+      // no allow-popups / allow-top-navigation: the embed physically cannot open new tabs or leave the app
+      f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation');
+      f.setAttribute('allow', 'autoplay; encrypted-media');
+      f.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+      f.src = 'https://www.youtube.com/embed/?' + new URLSearchParams({
+        enablejsapi: '1', origin: location.origin, widget_referrer: location.origin,
+        playsinline: '1', controls: '0', disablekb: '1', fs: '0', rel: '0', iv_load_policy: '3', modestbranding: '1', cc_load_policy: '0'
+      });
+      host.appendChild(f); this.frame = f;
+      let timer;
+      const fail = () => { clearTimeout(timer); this.ready = null; this.player = null; f.remove(); rej(new Error('No se pudo cargar el reproductor completo')); };
+      timer = setTimeout(fail, 15000);
+      const init = () => {
+        this.player = new YT.Player(f, { events: {
+          onReady: () => { clearTimeout(timer); res(this.player); },
+          onStateChange: e => this.onState(e.data),
+          onError: e => this.onError(e.data)
+        } });
+      };
+      if (window.YT?.Player) init();
+      else {
+        const prev = window.onYouTubeIframeAPIReady;
+        window.onYouTubeIframeAPIReady = () => { prev?.(); init(); };
+        const s = document.createElement('script'); s.src = 'https://www.youtube.com/iframe_api'; s.onerror = fail; document.head.append(s);
+      }
+    });
+    return this.ready;
+  },
+  onState() {}, onError() {}
+};
 
 export const player = new (class extends EventTarget {
   constructor() {
@@ -22,54 +63,69 @@ export const player = new (class extends EventTarget {
     this.repeat = store.get('repeat', 0);
     this.volume = store.get('volume', 0.85);
     this.muted = false;
-    this.mode = '';              // 'full' | 'preview' | 'live'
+    this.engine = 'audio';       // 'audio' | 'yt'
+    this.mode = '';              // 'full' | 'preview' | 'live' | 'yt'
+    this.reason = '';            // why a preview plays: guest | not_configured | disabled | quota | not_found | ...
+    this.needsTap = false;       // the browser blocked YouTube autoplay and wants a tap inside the player
     this.loading = false;
     this.sleep = null;
-    this._token = 0; this._blob = null; this._hinted = false; this._retries = 0;
+    this._token = 0; this._blob = null; this._retries = 0; this._ytPlaying = false; this._ytTried = []; this._tapTimer = 0;
     audio.volume = this.volume;
 
-    audio.addEventListener('ended', () => this._ended());
+    audio.addEventListener('ended', () => this.engine === 'audio' && this._ended());
     audio.addEventListener('play', () => this._emit('state'));
     audio.addEventListener('pause', () => this._emit('state'));
     audio.addEventListener('waiting', () => { this.loading = true; this._emit('state'); });
     audio.addEventListener('playing', () => { this.loading = false; this._retries = 0; this._emit('state'); });
     audio.addEventListener('error', () => {
-      if (!audio.getAttribute('src') || !this.current) return;
+      if (this.engine !== 'audio' || !audio.getAttribute('src') || !this.current) return;
       const t = this.current;
       if (t.live && this._retries < 1) { this._retries++; audio.load(); audio.play().catch(() => {}); return; } // radio hiccup: reconnect once
       toast(t.live ? `La emisora «${t.title}» no responde` : `No se pudo reproducir «${t.title}»`);
       setTimeout(() => this.current === t && this.next(true), 900);
     });
+    yt.onState = s => {
+      if (this.engine !== 'yt') return;
+      this._ytPlaying = s === 1;
+      this.loading = s === 3;
+      if (s === 1 || s === 3) this._setNeedsTap(false);
+      if (s === 0) this._ended();
+      this._emit('state');
+    };
+    yt.onError = code => this._ytFailed(code);
     setInterval(() => { if (!this.paused) { this._emit('time'); this._checkSleep(); } }, 250);
     this._mediaSession();
   }
   _emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail })); }
 
-  get paused() { return audio.paused; }
+  get paused() { return this.engine === 'yt' ? !this._ytPlaying : audio.paused; }
   get live() { return !!this.current?.live; }
-  get time() { return audio.currentTime || 0; }
+  get time() { return this.engine === 'yt' ? (yt.player?.getCurrentTime?.() || 0) : (audio.currentTime || 0); }
   get duration() {
     if (this.live) return 0;
-    const d = audio.duration;
+    const d = this.engine === 'yt' ? yt.player?.getDuration?.() : audio.duration;
     return isFinite(d) && d > 0 ? d : (this.mode === 'preview' ? 30 : this.current?.dur || 0);
   }
   seek(t) {
     if (this.live) return;
     t = Math.max(0, Math.min(t, this.duration - 0.25));
-    audio.currentTime = t; this._emit('time');
+    if (this.engine === 'yt') yt.player?.seekTo?.(t, true); else audio.currentTime = t;
+    this._emit('time');
   }
+  _applyVolume() { const v = this.muted ? 0 : this.volume; audio.volume = v; yt.player?.setVolume?.(Math.round(v * 100)); }
   setVolume(v) {
     this.volume = Math.max(0, Math.min(1, v)); store.set('volume', this.volume);
     if (this.volume > 0) this.muted = false;
-    audio.volume = this.muted ? 0 : this.volume; this._emit('volume');
+    this._applyVolume(); this._emit('volume');
   }
-  toggleMute() { this.muted = !this.muted; audio.volume = this.muted ? 0 : this.volume; this._emit('volume'); }
+  toggleMute() { this.muted = !this.muted; this._applyVolume(); this._emit('volume'); }
   play() {
     if (!this.current) { const seed = lib.recent.length ? lib.recent : lib.liked; if (seed.length) this.playList(seed, 0, { label: 'Escuchado recientemente' }); return; }
+    if (this.engine === 'yt') { yt.player?.playVideo?.(); this._armTapCheck(this._token); return; }
     if (this.live && audio.paused) { audio.load(); } // jump back to the live edge instead of resuming stale buffer
     audio.play().catch(() => {});
   }
-  pause() { audio.pause(); }
+  pause() { if (this.engine === 'yt') yt.player?.pauseVideo?.(); else audio.pause(); }
   toggle() { this.paused ? this.play() : this.pause(); }
 
   /* ---- queue ---- */
@@ -147,7 +203,8 @@ export const player = new (class extends EventTarget {
   async _load(t) {
     if (!t) return;
     const token = ++this._token;
-    this.current = t; this.loading = true; this.mode = ''; this._retries = 0;
+    this.current = t; this.loading = true; this.mode = ''; this.reason = ''; this._retries = 0; this._ytTried = [];
+    this._setNeedsTap(false);
     this._emit('track'); this._emit('queue'); this._emit('state');
     lib.pushRecent(t); cloud.logPlay(t);
     try {
@@ -164,24 +221,35 @@ export const player = new (class extends EventTarget {
         return await this._play(url, 'live', token);
       }
       if (t.full && t.url) return await this._play(t.url, 'full', token);
-      // catalog track: use the artist's own full upload when it exists, otherwise the 30 s preview
+      // catalog song: 1) the artist's own full upload (native audio)  2) official YouTube player  3) 30 s preview
       const full = await findFull(t);
       if (token !== this._token) return;
       if (full) return await this._play(full.url, 'full', token);
-      if (!this._hinted) { this._hinted = true; this._emit('hint', 'preview'); }
-      let url = '';
-      try { url = await deezer.freshPreview(t.dz); } catch { url = t.preview; }
+      const r = await cloud.resolve(t).catch(() => ({ error: 'network' }));
       if (token !== this._token) return;
-      if (!url) throw new Error(`«${t.title}» no tiene audio disponible`);
-      return await this._play(url, 'preview', token);
+      if (r.videoId) { this._ytTried = [r.videoId]; return await this._playYT(r.videoId, token); }
+      return await this._playPreview(t, token, r.error || 'network');
     } catch (e) {
       if (token !== this._token) return;
       this.loading = false; this._emit('state');
       toast(e.message || 'Error de reproducción'); setTimeout(() => token === this._token && this.next(true), 1200);
     }
   }
+  async _playPreview(t, token, reason) {
+    this.reason = reason; this._emit('hint', reason);
+    let url = '';
+    try { url = await deezer.freshPreview(t.dz); } catch { url = t.preview; }
+    if (token !== this._token) return;
+    if (!url) throw new Error(`«${t.title}» no tiene audio disponible`);
+    return await this._play(url, 'preview', token);
+  }
+  _stopYT() {
+    if (this.engine !== 'yt') return;
+    clearTimeout(this._tapTimer); yt.player?.stopVideo?.(); this._ytPlaying = false; this._setNeedsTap(false);
+  }
   async _play(url, mode, token) {
-    this.mode = mode; this._emit('engine');
+    this._stopYT();
+    this.engine = 'audio'; this.mode = mode; this._emit('engine');
     audio.src = url;
     try { await audio.play(); }
     catch (e) {
@@ -189,6 +257,37 @@ export const player = new (class extends EventTarget {
       if (e.name !== 'AbortError') throw e;
     }
     if (token === this._token) { this.loading = false; this._emit('state'); }
+  }
+  async _playYT(vid, token) {
+    audio.pause(); audio.removeAttribute('src'); audio.load();
+    this.engine = 'yt'; this.mode = 'yt'; this._emit('engine');
+    const p = await yt.load();
+    if (token !== this._token) return;
+    this._applyVolume();
+    p.loadVideoById(vid);
+    this._armTapCheck(token);
+  }
+  // Some browsers (iOS above all) only start sound in a cross-origin player after a tap inside it.
+  _armTapCheck(token) {
+    clearTimeout(this._tapTimer);
+    this._tapTimer = setTimeout(() => {
+      if (token !== this._token || this.engine !== 'yt' || this._ytPlaying) return;
+      const st = yt.player?.getPlayerState?.();
+      if (st !== 1 && st !== 3) { this.loading = false; this._setNeedsTap(true); this._emit('state'); }
+    }, 2600);
+  }
+  _setNeedsTap(v) { if (this.needsTap !== v) { this.needsTap = v; this._emit('needtap', v); } }
+  async _ytFailed(code) {
+    if (this.engine !== 'yt' || !this.current) return;
+    const t = this.current, token = this._token;
+    // 100 = removed/private, 101/150 = owner disallows embedding: ask the server for another upload
+    if ([100, 101, 150].includes(code) && this._ytTried.length < 3) {
+      cloud.forgetVideo(t);
+      const r = await cloud.resolve(t, this._ytTried).catch(() => ({}));
+      if (token !== this._token) return;
+      if (r.videoId) { this._ytTried.push(r.videoId); yt.player.loadVideoById(r.videoId); this._armTapCheck(token); return; }
+    }
+    this._playPreview(t, token, 'unavailable').catch(() => {});
   }
 
   /* ---- sleep timer ---- */
