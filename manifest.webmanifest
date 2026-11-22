@@ -3,12 +3,12 @@
   "short_name": "Listentoo",
   "description": "Escucha música online, crea playlists y llévala a cualquier dispositivo.",
   "id": "./",
-  "start_url": "./index.html#/home",
+  "start_url": "./index.html#/inicio",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#0b0b12",
-  "theme_color": "#0b0b12",
+  "background_color": "#08070f",
+  "theme_color": "#08070f",
   "lang": "es",
   "categories": ["music", "entertainment"],
   "icons": [
@@ -18,7 +18,7 @@
     { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
   ],
   "shortcuts": [
-    { "name": "Buscar", "url": "./index.html#/search" },
-    { "name": "Biblioteca", "url": "./index.html#/library" }
+    { "name": "Buscar", "url": "./index.html#/explorar" },
+    { "name": "Biblioteca", "url": "./index.html#/biblioteca" }
   ]
 }

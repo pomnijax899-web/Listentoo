@@ -1,293 +1,322 @@
-// Page views. Each returns after writing into #view; `setHeader` tints the top bar.
-import { $, $$, esc, fmtLong, fmtNum, plural, imageColor, rgb, debounce, store } from './util.js';
-import { deezer, audius } from './api.js';
+// Page views for the Orbit UI. Each view writes into #view.
+import { $, $$, esc, fmt, fmtLong, fmtNum, plural, imageColor, rgb, debounce, store, toast } from './util.js';
+import { deezer, audius, MOODS } from './api.js';
 import { lib } from './library.js';
 import { player } from './player.js';
-import { icons, img, trackList, card, shelf, mosaic, skeleton, skeletonShelves, errorState, fans, registerList, prompt, confirmBox, share, showMenu } from './ui.js';
+import { cloud } from './cloud.js';
+import { THEMES, applyTheme, resolveTheme } from './themes.js';
+import { icons, img, trackList, card, shelf, mosaic, skeleton, skeletonShelves, errorState, registerList, prompt, confirmBox, share, showMenu, modal, trackCards, avatar, hrefOf } from './ui.js';
 
 const view = () => $('#view');
-let renderSeq = 0;
-const stale = seq => seq !== renderSeq;
-
-export function setTint(c) {
-  document.documentElement.style.setProperty('--tint', rgb(c));
-  document.documentElement.style.setProperty('--tint-a', rgb(c, 0.55));
-}
+let seqN = 0;
+const begin = () => ++seqN;
+const stale = s => s !== seqN;
+const setTint = c => document.documentElement.style.setProperty('--tint', rgb(c));
 const greeting = () => { const h = new Date().getHours(); return h < 6 ? 'Buenas noches' : h < 13 ? 'Buenos días' : h < 21 ? 'Buenas tardes' : 'Buenas noches'; };
+const typeLabel = t => t === 'single' ? 'Sencillo' : t === 'ep' ? 'EP' : t === 'compile' ? 'Recopilatorio' : 'Álbum';
 
-function heroActions({ listKey, saved, saveKind, extra = '', follow }) {
+function actions({ listKey, saved, saveKind, follow, extra = '' }) {
   return `<div class="actions">
     <button class="bigplay" data-hero="play" data-list="${listKey}" aria-label="Reproducir">${icons.play}</button>
-    <button class="iconbtn lg${player.shuffle ? ' on' : ''}" data-hero="shuffle" data-list="${listKey}" aria-label="Aleatorio" title="Aleatorio">${icons.shuffle}</button>
-    ${follow !== undefined ? `<button class="pill ghost" data-hero="save">${follow ? 'Siguiendo' : 'Seguir'}</button>` : ''}
+    <button class="iconbtn lg${player.shuffle ? ' on' : ''}" data-hero="shuffle" aria-label="Aleatorio" title="Aleatorio">${icons.shuffle}</button>
+    ${follow !== undefined ? `<button class="pill ghost${follow ? ' on' : ''}" data-hero="save">${follow ? 'Siguiendo' : 'Seguir'}</button>` : ''}
     ${saveKind ? `<button class="iconbtn lg save${saved ? ' on' : ''}" data-hero="save" aria-label="Guardar" title="${saved ? 'Quitar de tu biblioteca' : 'Guardar en tu biblioteca'}">${saved ? icons.check : icons.plusCircle}</button>` : ''}
     ${extra}
     <button class="iconbtn lg" data-hero="more" aria-label="Más opciones">${icons.more}</button>
   </div>`;
 }
-function bindHero(root, { tracks, label, href, onSave, onMore }) {
+function bindActions(root, { tracks, label, href, onSave, onMore }) {
   root.querySelector('[data-hero="play"]')?.addEventListener('click', () => {
-    const same = player.ctx.href === href && player.current;
-    same ? player.toggle() : player.playList(tracks, 0, { label, href, shuffle: false });
+    if (player.ctx.href === href && player.current) player.toggle();
+    else player.playList(tracks, 0, { label, href, shuffle: false });
   });
   root.querySelector('[data-hero="shuffle"]')?.addEventListener('click', () => player.playList(tracks, 0, { label, href, shuffle: true }));
   root.querySelector('[data-hero="save"]')?.addEventListener('click', onSave || (() => {}));
   root.querySelector('[data-hero="more"]')?.addEventListener('click', e => onMore ? onMore(e.currentTarget) : showMenu([
     { icon: '☰', text: 'Añadir a la cola', run: () => player.addToQueue(tracks) },
-    { icon: '＋', text: 'Añadir a playlist nueva', run: async () => { const n = await prompt('Nueva playlist', label, 'Crear'); if (n !== null) lib.createPlaylist(n, tracks); } },
+    { icon: '＋', text: 'Guardar como playlist', run: async () => { const n = await prompt('Nueva playlist', label, 'Crear'); if (n !== null) { lib.createPlaylist(n, tracks); toast('Playlist creada'); } } },
     ...lib.playlists.slice(0, 8).map(p => ({ icon: '♪', text: `Añadir a «${p.name}»`, run: () => lib.addToPlaylist(p.id, tracks) })),
     '-', { icon: '↗', text: 'Compartir', run: () => share(label, href) }
   ], e.currentTarget));
 }
+const poster = ({ c, art, kind, title, meta = '', desc = '', cls = '' }) => `
+  <header class="poster ${cls}" style="--c:${rgb(c)}">
+    <div class="poster-art">${art}</div>
+    <div class="poster-meta"><div class="eyebrow">${esc(kind)}</div><h1 class="title-xl">${esc(title)}</h1>${desc ? `<p class="desc">${esc(desc)}</p>` : ''}<p class="byline">${meta}</p></div>
+  </header>`;
+const sleeve = (src, alt = '') => `<div class="sleeve-wrap"><span class="vinyl big" style="--lbl:url('${esc(src)}')"></span>${img(src, 'sleeve', alt)}</div>`;
 
-async function tintFrom(url) { const c = await imageColor(url); setTint(c); return c; }
-
-/* ================= HOME ================= */
+/* ======================= INICIO ======================= */
 export async function home() {
-  const seq = ++renderSeq;
-  setTint([70, 40, 120]);
-  const quick = [{ kind: 'liked', id: 'liked', title: 'Tus me gusta' }, ...lib.visited, ...lib.playlists.map(p => ({ ...p, kind: 'playlist', title: p.name }))].slice(0, 8);
-  const recentK = lib.recent.length ? registerList(lib.recent, { label: 'Escuchado recientemente' }) : '';
+  const s = begin(); setTint([90, 60, 160]);
+  const name = cloud.profile?.display_name;
+  const today = new Date().toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' });
+  const counts = {};
+  [...lib.recent, ...lib.liked].forEach(t => { if (t.artistId) counts[t.artistId] = { n: (counts[t.artistId]?.n || 0) + 1, name: t.artist, cover: t.cover }; });
+  const fav = Object.entries(counts).sort((a, b) => b[1].n - a[1].n)[0];
+  const ann = cloud.announcement;
   view().innerHTML = `
-    <h1 class="greet">${greeting()}</h1>
-    <div class="quick">${quick.map(q => `<a class="qtile" href="${q.kind === 'liked' ? '#/liked' : q.kind === 'playlist' ? '#/playlist/' + q.id : `#/${q.kind}/${q.id}`}" data-kind="${q.kind}" data-id="${esc(q.id)}">
-      ${q.kind === 'liked' ? `<div class="qart liked-art">${icons.heartOn}</div>` : q.kind === 'playlist' ? mosaic(q.tracks || [], 'qart') : img(q.cover || q.pic, 'qart' + (q.kind === 'artist' ? ' round' : ''))}
-      <span class="ellipsis2">${esc(q.title || q.name)}</span><button class="fab sm" data-act="playcoll" aria-label="Reproducir">${icons.play}</button></a>`).join('')}</div>
-    ${recentK ? `<section class="shelf"><div class="shelf-head"><h2>Escuchado recientemente</h2></div><div class="hscroll" data-list="${recentK}">${lib.recent.slice(0, 14).map((t, i) => `<div class="card" data-track-i="${i}"><div class="art-wrap">${img(t.cover)}<button class="fab" aria-label="Reproducir">${icons.play}</button></div><div class="ct ellipsis">${esc(t.title)}</div><div class="cs ellipsis">${esc(t.artist)}</div></div>`).join('')}</div></section>` : ''}
+    <section class="hello">
+      <div class="date">${esc(today)}</div>
+      <h1 class="greet">${greeting()}${name ? `, <span class="grad">${esc(name)}</span>` : ''}</h1>
+      <p class="muted">¿Qué te apetece escuchar hoy?</p>
+    </section>
+    ${ann ? `<div class="announce ${esc(ann.tone || 'info')}"><span class="dot"></span><p>${esc(ann.text)}</p></div>` : ''}
+    <div class="moods">${MOODS.map(m => `<a class="mood" href="#/mood/${m.id}" style="--m1:${m.c[0]};--m2:${m.c[1]}"><span>${m.icon}</span>${esc(m.name)}</a>`).join('')}</div>
+    ${cloud.signedIn ? '' : `<a class="cta" href="#/cuenta"><div><b>Crea tu cuenta gratis</b><p>Canciones completas, tu biblioteca en todos tus dispositivos y playlists para compartir.</p></div><span class="pill primary">Empezar</span></a>`}
+    <div class="bento" id="bento">
+      <a class="tile t-top" href="#/top"><div class="t-collage" id="topCollage">${Array.from({ length: 6 }, () => '<i class="sk"></i>').join('')}</div><div class="t-body"><div class="eyebrow">Lista del día</div><h2>Top 50 Global</h2><p id="topSub" class="muted">Lo más escuchado ahora mismo</p></div><button class="fab show" id="topPlay" aria-label="Reproducir Top 50">${icons.play}</button></a>
+      <button class="tile t-mix" id="mixTile" style="--img:url('${esc(fav?.[1].cover || '')}')"><div class="t-glow"></div><div class="t-body"><div class="eyebrow">${fav ? 'Tu mezcla' : 'Descubre'}</div><h2>${fav ? `${esc(fav[1].name)} y más` : 'Algo nuevo para ti'}</h2><p class="muted">${fav ? 'Una radio infinita a partir de lo que más escuchas' : 'Una radio sorpresa con artistas en tendencia'}</p></div><span class="fab show">${icons.radio}</span></button>
+      <a class="tile t-liked" href="#/megusta"><div class="liked-art">${icons.heartOn}</div><div><h3>Me gusta</h3><p class="muted">${plural(lib.liked.length, 'canción', 'canciones')}</p></div></a>
+      <div class="tile t-recent"><div class="eyebrow">Vuelve a escuchar</div><div id="recentMini">${lib.recent.slice(0, 4).map((t, i) => `<button class="mini-row" data-ri="${i}">${img(t.cover)}<span class="ellipsis"><b>${esc(t.title)}</b><small>${esc(t.artist)}</small></span></button>`).join('') || '<p class="muted small">Lo que escuches aparecerá aquí.</p>'}</div></div>
+    </div>
+    ${lib.recent.length > 4 ? `<section class="shelf"><div class="shelf-head"><h2>Escuchado recientemente</h2></div>${trackCards(lib.recent.slice(0, 16), 'Escuchado recientemente')}</section>` : ''}
     <div id="homeMore">${skeletonShelves(3)}</div>`;
+  const recentK = registerList(lib.recent, { label: 'Escuchado recientemente' });
+  $('#recentMini').onclick = e => { const b = e.target.closest('[data-ri]'); if (b) player.playList(lib.recent, +b.dataset.ri, { label: 'Escuchado recientemente' }); };
+  void recentK;
+  $('#mixTile').onclick = async () => {
+    try {
+      let tracks;
+      if (fav) tracks = await deezer.artistRadio(fav[0]);
+      else { const top = await deezer.chartArtists(0, 20); const a = top[Math.floor(Math.random() * top.length)]; tracks = await deezer.artistRadio(a.id); }
+      player.playList(tracks, 0, { label: fav ? `Tu mezcla · ${fav[1].name}` : 'Descubre' });
+    } catch { toast('No se pudo crear la mezcla'); }
+  };
   try {
     const [tracks, albums, artists, playlists] = await Promise.all([deezer.chartTracks(0, 50), deezer.chartAlbums(), deezer.chartArtists(), deezer.chartPlaylists()]);
-    if (stale(seq)) return;
-    const topK = registerList(tracks, { label: 'Top 50 Global', href: '#/chart' });
-    const followed = lib.artists.slice(0, 3);
-    $('#homeMore').innerHTML = `
-      <section class="shelf feature">
-        <a class="feat" href="#/chart" style="--c:${rgb(await imageColor(tracks[0]?.cover))}">
-          ${mosaic(tracks, 'feat-art')}<div><div class="eyebrow">Lista</div><h2>Top 50 · Global</h2><p>Las canciones más escuchadas ahora mismo: ${esc(tracks.slice(0, 3).map(t => t.artist).join(', '))} y más.</p>
-          <button class="bigplay" data-hero="play" data-list="${topK}" aria-label="Reproducir Top 50">${icons.play}</button></div></a>
-      </section>
-      ${shelf('Álbumes del momento', albums)}
-      ${shelf('Artistas populares', artists)}
-      ${shelf('Playlists destacadas', playlists)}
-      <div id="homeArtists"></div>
-      <div id="homeIndie"></div>`;
-    $('#homeMore [data-hero="play"]').onclick = e => { e.preventDefault(); player.playList(tracks, 0, { label: 'Top 50 Global', href: '#/chart' }); };
-    // personalised shelves from followed artists
+    if (stale(s)) return;
+    $('#topCollage').innerHTML = tracks.slice(0, 6).map(t => img(t.cover)).join('');
+    $('#topSub').textContent = tracks.slice(0, 3).map(t => t.artist).join(', ') + ' y más';
+    $('#topPlay').onclick = e => { e.preventDefault(); e.stopPropagation(); player.playList(tracks, 0, { label: 'Top 50 Global', href: '#/top' }); };
+    const followed = lib.artists.slice(0, 2);
+    $('#homeMore').innerHTML = `${shelf('Álbumes del momento', albums)}${shelf('Artistas en órbita', artists)}${shelf('Playlists destacadas', playlists)}<div id="homeFollow"></div><div id="homeIndie"></div>`;
     const per = await Promise.allSettled(followed.map(a => deezer.artistRelated(a.id)));
-    if (stale(seq)) return;
-    $('#homeArtists').innerHTML = per.map((r, i) => r.value?.length ? shelf(`Porque sigues a ${followed[i].name}`, r.value) : '').join('');
+    if (stale(s)) return;
+    $('#homeFollow').innerHTML = per.map((r, i) => r.value?.length ? shelf(`Porque sigues a ${followed[i].name}`, r.value) : '').join('');
     audius.trending().then(au => {
-      if (stale(seq) || !au.length) return;
-      const k = registerList(au, { label: 'Independiente en tendencia' });
-      $('#homeIndie').innerHTML = `<section class="shelf"><div class="shelf-head"><h2>Independiente · canciones completas</h2></div><div class="hscroll" data-list="${k}">${au.slice(0, 16).map((t, i) => `<div class="card" data-track-i="${i}"><div class="art-wrap">${img(t.cover)}<button class="fab" aria-label="Reproducir">${icons.play}</button></div><div class="ct ellipsis">${esc(t.title)}</div><div class="cs ellipsis">${esc(t.artist)}</div></div>`).join('')}</div></section>`;
+      if (stale(s) || !au.length) return;
+      $('#homeIndie').innerHTML = `<section class="shelf"><div class="shelf-head"><h2>Independiente · siempre completa</h2></div>${trackCards(au.slice(0, 16), 'Independiente en tendencia')}</section>`;
     }).catch(() => {});
-  } catch { if (!stale(seq)) $('#homeMore').innerHTML = errorState(); }
+  } catch { if (!stale(s)) $('#homeMore').innerHTML = errorState(); }
 }
 
-/* ================= CHART ================= */
-export async function chart(genreId = 0) {
-  const seq = ++renderSeq; view().innerHTML = skeleton();
-  try {
-    const [tracks, g] = await Promise.all([deezer.chartTracks(genreId, 100), genreId ? deezer.genre(genreId) : Promise.resolve({ name: 'Global' })]);
-    if (stale(seq)) return;
-    const c = await tintFrom(tracks[0]?.cover);
-    const label = `Top ${genreId ? g.name : 'Global'}`, href = genreId ? `#/genre/${genreId}` : '#/chart';
-    const k = registerList(tracks, { label, href });
-    view().innerHTML = `<header class="hero" style="--c:${rgb(c)}">${mosaic(tracks, 'hero-art')}<div class="hero-meta"><div class="eyebrow">Lista</div><h1 class="fit">${esc(label)}</h1><p class="muted">Actualizada a diario · ${plural(tracks.length, 'canción', 'canciones')}</p></div></header>
-      <div class="page-body">${heroActions({ listKey: k })}${trackList(tracks, { label, href })}</div>`;
-    bindHero(view(), { tracks, label, href });
-  } catch { if (!stale(seq)) view().innerHTML = errorState(); }
-}
-
-/* ================= SEARCH ================= */
+/* ======================= EXPLORAR ======================= */
 let lastFilter = 'all';
-export async function search(q = '') {
-  const seq = ++renderSeq;
-  setTint([40, 40, 60]);
-  const input = $('#searchInput');
-  if (input && input.value !== q) input.value = q;
+export async function explore(q = '') {
+  const s = begin(); setTint([50, 50, 90]);
+  const top = $('#searchInput'); if (top && top.value !== q && document.activeElement !== top) top.value = q;
   if (!q) {
-    view().innerHTML = `${lib.recent.length ? '' : ''}<h2 class="mt0">Explorar todo</h2><div class="genres" id="genres">${Array.from({ length: 12 }, () => '<div class="genre sk"></div>').join('')}</div>`;
+    view().innerHTML = `<div class="page-search"><input id="pageSearch" type="search" placeholder="Artistas, canciones, álbumes…" autocomplete="off" enterkeyhint="search"></div>
+      <h1>Explorar</h1>
+      <h2>Para cada momento</h2><div class="mood-grid">${MOODS.map(m => `<a class="mood-card" href="#/mood/${m.id}" style="--m1:${m.c[0]};--m2:${m.c[1]}"><span class="mi">${m.icon}</span><b>${esc(m.name)}</b></a>`).join('')}</div>
+      <h2>Géneros</h2><div class="genres" id="genres">${Array.from({ length: 12 }, () => '<div class="genre sk"></div>').join('')}</div>`;
+    bindPageSearch();
     try {
-      const gs = await deezer.genres(); if (stale(seq)) return;
-      const palette = ['#e13300', '#1e3264', '#8400e7', '#e8115b', '#148a08', '#bc5900', '#509bf5', '#dc148c', '#477d95', '#ba5d07', '#8d67ab', '#27856a', '#e91429', '#503750', '#0d73ec', '#af2896'];
-      $('#genres').innerHTML = `<a class="genre" href="#/chart" style="--g:#7c3aed"><span>Top 100</span></a>` + gs.map((g, i) => `<a class="genre" href="#/genre/${g.id}" style="--g:${palette[i % palette.length]}"><span>${esc(g.name)}</span>${img(g.picture_medium, 'gimg')}</a>`).join('');
-    } catch { if (!stale(seq)) $('#genres').outerHTML = errorState(); }
+      const gs = await deezer.genres(); if (stale(s)) return;
+      $('#genres').innerHTML = `<a class="genre" href="#/top" style="--g1:#7c3aed;--g2:#db2777"><span>Top 100</span></a>` + gs.map((g, i) => `<a class="genre" href="#/genero/${g.id}" style="--g1:hsl(${(i * 37) % 360} 70% 45%);--g2:hsl(${(i * 37 + 50) % 360} 75% 35%)"><span>${esc(g.name)}</span>${img(g.picture_medium, 'gimg')}</a>`).join('');
+    } catch { if (!stale(s)) $('#genres').outerHTML = errorState(); }
     return;
   }
-  view().innerHTML = `<div class="chips" id="sfilters">${[['all', 'Todo'], ['tracks', 'Canciones'], ['artists', 'Artistas'], ['albums', 'Álbumes'], ['playlists', 'Playlists'], ['indie', 'Independiente']].map(([k, l]) => `<button class="chip${k === lastFilter ? ' on' : ''}" data-f="${k}">${l}</button>`).join('')}</div><div id="sres">${skeleton(6)}</div>`;
+  view().innerHTML = `<div class="page-search"><input id="pageSearch" type="search" value="${esc(q)}" autocomplete="off" enterkeyhint="search"></div>
+    <div class="chips" id="sfilters">${[['all', 'Todo'], ['tracks', 'Canciones'], ['artists', 'Artistas'], ['albums', 'Álbumes'], ['playlists', 'Playlists'], ['indie', 'Independiente']].map(([k, l]) => `<button class="chip${k === lastFilter ? ' on' : ''}" data-f="${k}">${l}</button>`).join('')}</div><div id="sres">${skeleton(6)}</div>`;
+  bindPageSearch();
   const [tr, ar, al, pl, au] = await Promise.allSettled([deezer.search(q, 40), deezer.searchArtists(q, 18), deezer.searchAlbums(q, 18), deezer.searchPlaylists(q, 18), audius.search(q)]);
-  if (stale(seq)) return;
+  if (stale(s)) return;
   const T = tr.value || [], A = ar.value || [], AL = al.value || [], PL = pl.value || [], AU = au.value || [];
-  const localHits = [...lib.local, ...lib.liked].filter((t, i, a) => a.findIndex(x => x.id === t.id) === i).filter(t => `${t.title} ${t.artist}`.toLowerCase().includes(q.toLowerCase()));
+  const mine = [...lib.local, ...lib.liked].filter((t, i, a) => a.findIndex(x => x.id === t.id) === i).filter(t => `${t.title} ${t.artist}`.toLowerCase().includes(q.toLowerCase()));
   const render = f => {
     lastFilter = f;
     $$('#sfilters .chip').forEach(c => c.classList.toggle('on', c.dataset.f === f));
     const box = $('#sres');
-    if (!T.length && !A.length && !AL.length && !AU.length) { box.innerHTML = tr.status === 'rejected' ? errorState() : `<div class="empty"><h3>No hay resultados para «${esc(q)}»</h3><p>Revisa la ortografía o prueba con otras palabras.</p></div>`; return; }
-    if (f === 'tracks') box.innerHTML = trackList(T, { label: `Resultados de «${q}»` });
-    else if (f === 'artists') box.innerHTML = `<div class="cgrid">${A.map(a => card(a)).join('')}</div>`;
+    if (!T.length && !A.length && !AL.length && !AU.length) { box.innerHTML = tr.status === 'rejected' ? errorState() : `<div class="empty"><h3>Nada para «${esc(q)}»</h3><p>Prueba con otras palabras o revisa la ortografía.</p></div>`; return; }
+    const lbl = `Resultados de «${q}»`;
+    if (f === 'tracks') box.innerHTML = trackList(T, { label: lbl });
+    else if (f === 'artists') box.innerHTML = `<div class="cgrid bubbles">${A.map(a => card(a)).join('')}</div>`;
     else if (f === 'albums') box.innerHTML = `<div class="cgrid">${AL.map(a => card(a)).join('')}</div>`;
     else if (f === 'playlists') box.innerHTML = `<div class="cgrid">${PL.map(a => card(a)).join('')}</div>`;
     else if (f === 'indie') box.innerHTML = AU.length ? trackList(AU, { label: `Independiente: «${q}»` }) : '<div class="empty"><p>Sin resultados independientes.</p></div>';
     else {
-      // choose top result: exact artist name match wins, otherwise first track
-      const topArtist = A.find(a => a.name.toLowerCase() === q.toLowerCase());
-      const top = topArtist || (T[0] ? { kind: 'track', ...T[0] } : A[0]);
-      const tk = registerList(T, { label: `Resultados de «${q}»` });
+      const exact = A.find(a => a.name.toLowerCase() === q.toLowerCase());
+      const topIsArtist = !!exact || (!T.length && A.length);
+      const tp = exact || (T[0] && !topIsArtist ? T[0] : A[0]);
       box.innerHTML = `<div class="top-grid">
-        <section><h2>Resultado principal</h2>${top ? `<a class="topres" href="${top.kind === 'artist' ? '#/artist/' + top.id : top.albumId ? '#/album/' + top.albumId : '#/'}" data-kind="${top.kind === 'artist' ? 'artist' : 'track'}" data-id="${esc(top.id)}">
-          ${img(top.kind === 'artist' ? top.pic : top.cover, top.kind === 'artist' ? 'round' : '')}<div class="tr-name ellipsis">${esc(top.name || top.title)}</div>
-          <div class="tr-sub">${top.kind === 'artist' ? '<span class="tag">Artista</span>' : `<span class="tag">Canción</span> ${esc(top.artist)}`}</div>
-          <button class="fab show" data-act="${top.kind === 'artist' ? 'playcoll' : 'playtop'}" aria-label="Reproducir">${icons.play}</button></a>` : ''}</section>
-        <section><h2>Canciones</h2>${trackList(T.slice(0, 5), { label: `Resultados de «${q}»`, album: false, numbers: false })}</section>
+        <section><h2>Lo más destacado</h2>${tp ? `<a class="topres" href="${topIsArtist ? '#/artista/' + tp.id : tp.albumId ? '#/album/' + tp.albumId : '#/explorar'}" ${topIsArtist ? `data-kind="artist" data-id="${tp.id}"` : ''}>
+          ${img(topIsArtist ? tp.picXL || tp.pic : tp.coverXL || tp.cover, topIsArtist ? 'round' : '')}<div><div class="tag">${topIsArtist ? 'Artista' : 'Canción'}</div><div class="tr-name ellipsis2">${esc(tp.name || tp.title)}</div><div class="muted">${topIsArtist ? fmtNum(tp.fans) + ' fans' : esc(tp.artist)}</div></div>
+          <button class="fab show" data-act="${topIsArtist ? 'playcoll' : 'playtop'}" aria-label="Reproducir">${icons.play}</button></a>` : ''}</section>
+        <section><h2>Canciones</h2>${trackList(T.slice(0, 5), { label: lbl, album: false, numbers: false })}</section>
       </div>
-      ${localHits.length ? `<section class="shelf"><h2>En tu biblioteca</h2>${trackList(localHits.slice(0, 6), { label: 'Tu biblioteca' })}</section>` : ''}
+      ${mine.length ? `<section class="shelf"><h2>En tu biblioteca</h2>${trackList(mine.slice(0, 6), { label: 'Tu biblioteca' })}</section>` : ''}
       ${shelf('Artistas', A)}${shelf('Álbumes', AL)}${shelf('Playlists', PL)}
-      ${AU.length ? `<section class="shelf"><h2>Independiente · canciones completas</h2>${trackList(AU.slice(0, 6), { label: `Independiente: «${q}»` })}</section>` : ''}`;
-      box.querySelector('[data-act="playtop"]')?.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); player.playList(T, 0, { label: `Resultados de «${q}»` }); });
-      void tk;
+      ${AU.length ? `<section class="shelf"><h2>Independiente · siempre completa</h2>${trackList(AU.slice(0, 6), { label: `Independiente: «${q}»` })}</section>` : ''}`;
+      box.querySelector('[data-act="playtop"]')?.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); player.playList(T, 0, { label: lbl }); });
     }
   };
   $('#sfilters').onclick = e => { const c = e.target.closest('.chip'); if (c) render(c.dataset.f); };
   render(lastFilter);
 }
-
-/* ================= GENRE ================= */
-export async function genre(id) {
-  const seq = ++renderSeq; view().innerHTML = skeleton(4);
-  try {
-    const [g, tracks, artists, albums] = await Promise.all([deezer.genre(id), deezer.chartTracks(id, 50), deezer.genreArtists(id), deezer.chartAlbums(id, 20).catch(() => [])]);
-    if (stale(seq)) return;
-    const c = await tintFrom(g.picture_medium);
-    const label = `Lo mejor de ${g.name}`, href = `#/genre/${id}`;
-    const k = registerList(tracks, { label, href });
-    view().innerHTML = `<header class="hero compact" style="--c:${rgb(c)}">${img(g.picture_xl || g.picture_big, 'hero-art')}<div class="hero-meta"><div class="eyebrow">Género</div><h1 class="fit">${esc(g.name)}</h1></div></header>
-      <div class="page-body">${heroActions({ listKey: k })}
-      <h2>Canciones populares</h2>${trackList(tracks.slice(0, 20), { label, href })}
-      ${shelf('Artistas', artists)}${shelf('Álbumes populares', albums)}</div>`;
-    bindHero(view(), { tracks, label, href });
-  } catch { if (!stale(seq)) view().innerHTML = errorState(); }
+function bindPageSearch() {
+  const inp = $('#pageSearch'); if (!inp) return;
+  const go = debounce(v => { history.replaceState(null, '', '#/explorar' + (v ? '?q=' + encodeURIComponent(v) : '')); explore(v); }, 380);
+  inp.addEventListener('input', () => go(inp.value.trim()));
+  if (!inp.value && matchMedia('(max-width: 820px)').matches) setTimeout(() => inp.focus(), 60);
 }
 
-/* ================= ARTIST ================= */
-export async function artist(id) {
-  const seq = ++renderSeq; view().innerHTML = skeleton();
+/* ======================= MOOD ======================= */
+export async function mood(id) {
+  const s = begin(); const m = MOODS.find(x => x.id === id);
+  if (!m) { location.hash = '#/explorar'; return; }
+  view().innerHTML = skeleton(4);
   try {
-    const [a, top, albums, related] = await Promise.all([deezer.artist(id), deezer.artistTop(id, 10), deezer.artistAlbums(id), deezer.artistRelated(id).catch(() => [])]);
-    if (stale(seq)) return;
+    const [pls, tracks] = await Promise.all([deezer.searchPlaylists(m.q, 18), deezer.search(m.q, 30)]);
+    if (stale(s)) return;
+    const c = await imageColor(pls[0]?.cover); setTint(c);
+    const label = `Mood · ${m.name}`, href = `#/mood/${id}`;
+    const k = registerList(tracks, { label, href });
+    view().innerHTML = `<header class="poster mood-poster" style="--m1:${m.c[0]};--m2:${m.c[1]};--c:${rgb(c)}"><div class="poster-art"><div class="mood-orb"><span>${m.icon}</span></div></div><div class="poster-meta"><div class="eyebrow">Estado de ánimo</div><h1 class="title-xl">${esc(m.name)}</h1><p class="byline">${plural(pls.length, 'playlist', 'playlists')} · ${plural(tracks.length, 'canción', 'canciones')}</p></div></header>
+      <div class="page-body">${actions({ listKey: k })}${shelf('Playlists para este momento', pls)}<h2>Canciones</h2>${trackList(tracks, { label, href })}</div>`;
+    bindActions(view(), { tracks, label, href });
+  } catch { if (!stale(s)) view().innerHTML = errorState(); }
+}
+
+/* ======================= TOP / GÉNERO ======================= */
+export async function top(genreId = 0) {
+  const s = begin(); view().innerHTML = skeleton();
+  try {
+    const [tracks, g] = await Promise.all([deezer.chartTracks(genreId, 100), genreId ? deezer.genre(genreId) : Promise.resolve({ name: 'Global' })]);
+    if (stale(s)) return;
+    const c = await imageColor(tracks[0]?.cover); setTint(c);
+    const label = `Top ${g.name}`, href = genreId ? `#/genero/${genreId}` : '#/top';
+    const k = registerList(tracks, { label, href });
+    view().innerHTML = poster({ c, art: mosaic(tracks, 'cover-art'), kind: 'Lista', title: label, meta: `Se actualiza a diario · ${plural(tracks.length, 'canción', 'canciones')}` })
+      + `<div class="page-body">${actions({ listKey: k })}${trackList(tracks, { label, href })}</div>`;
+    bindActions(view(), { tracks, label, href });
+  } catch { if (!stale(s)) view().innerHTML = errorState(); }
+}
+export async function genre(id) {
+  const s = begin(); view().innerHTML = skeleton(4);
+  try {
+    const [g, tracks, artists, albums] = await Promise.all([deezer.genre(id), deezer.chartTracks(id, 50), deezer.genreArtists(id), deezer.chartAlbums(id, 20).catch(() => [])]);
+    if (stale(s)) return;
+    const c = await imageColor(g.picture_medium); setTint(c);
+    const label = `Lo mejor de ${g.name}`, href = `#/genero/${id}`;
+    const k = registerList(tracks, { label, href });
+    view().innerHTML = poster({ c, art: img(g.picture_xl || g.picture_big, 'cover-art round'), kind: 'Género', title: g.name })
+      + `<div class="page-body">${actions({ listKey: k })}<h2>Suena ahora</h2>${trackList(tracks.slice(0, 20), { label, href })}${shelf('Artistas', artists)}${shelf('Álbumes populares', albums)}</div>`;
+    bindActions(view(), { tracks, label, href });
+  } catch { if (!stale(s)) view().innerHTML = errorState(); }
+}
+
+/* ======================= ARTISTA ======================= */
+export async function artist(id) {
+  const s = begin(); view().innerHTML = skeleton();
+  try {
+    const [a, topT, albums, related] = await Promise.all([deezer.artist(id), deezer.artistTop(id, 10), deezer.artistAlbums(id), deezer.artistRelated(id).catch(() => [])]);
+    if (stale(s)) return;
     lib.pushVisited({ kind: 'artist', id: a.id, title: a.name, pic: a.pic });
-    const c = await tintFrom(a.pic);
-    const label = a.name, href = `#/artist/${id}`;
-    const k = registerList(top, { label, href });
-    const groups = { album: [], single: [], ep: [], compile: [] };
-    albums.forEach(al => (groups[al.type] || groups.album).push(al));
-    const disc = [...groups.album, ...groups.ep, ...groups.single];
+    const c = await imageColor(a.pic); setTint(c);
+    const label = a.name, href = `#/artista/${id}`;
+    const k = registerList(topT, { label, href });
+    const disc = albums.filter(x => x.type !== 'compile');
     const latest = [...albums].sort((x, y) => (y.year || '').localeCompare(x.year || ''))[0];
     const render = () => {
       const following = lib.isSaved('artist', a.id);
-      view().innerHTML = `<header class="hero artist-hero" style="--c:${rgb(c)};--bg:url('${esc(a.picXL)}')"><div class="hero-bg"></div><div class="hero-meta"><div class="verified">✔ Artista verificado</div><h1 class="fit xl">${esc(a.name)}</h1><p>${fmtNum(a.fans)} seguidores</p></div></header>
-        <div class="page-body">${heroActions({ listKey: k, follow: following })}
-        <div class="artist-grid"><section><h2>Populares</h2><div id="popular">${trackList(top.slice(0, 5), { label, href, album: false })}</div>${top.length > 5 ? '<button class="linkbtn" id="morePop">Mostrar más</button>' : ''}</section>
-        ${latest ? `<section class="pick"><h2>Lanzamiento destacado</h2><a class="pickcard" href="#/album/${latest.id}">${img(latest.cover)}<div><div class="tag">Más reciente</div><div class="ct">${esc(latest.title)}</div><div class="cs">${esc(latest.year)} · ${latest.type === 'single' ? 'Sencillo' : latest.type === 'ep' ? 'EP' : 'Álbum'}</div></div></a></section>` : ''}</div>
-        <section class="shelf"><div class="shelf-head"><h2>Discografía</h2></div><div class="chips" id="discf">${[['all', 'Todo'], ['album', 'Álbumes'], ['single', 'Sencillos y EP']].map(([v, l], i) => `<button class="chip${i ? '' : ' on'}" data-f="${v}">${l}</button>`).join('')}</div><div class="hscroll" id="disc">${disc.map(al => card(al, { sub: `${al.year} · ${al.type === 'single' ? 'Sencillo' : al.type === 'ep' ? 'EP' : 'Álbum'}` })).join('')}</div></section>
-        ${shelf('A los fans también les gusta', related)}
-        ${a.albums ? `<section class="about" style="--bg:url('${esc(a.picXL)}')"><h2>Información</h2><div class="about-card"><div><b>${fmtNum(a.fans)}</b> seguidores</div><div><b>${a.albums}</b> lanzamientos</div><button class="pill" id="artistRadio">📻 Radio del artista</button></div></section>` : ''}</div>`;
-      bindHero(view(), { tracks: top, label, href, onSave: () => { lib.toggleSaved('artist', { kind: 'artist', id: a.id, name: a.name, pic: a.pic }); render(); } });
-      $('#morePop')?.addEventListener('click', e => { $('#popular').innerHTML = trackList(top, { label, href, album: false }); e.target.remove(); });
-      $('#discf').onclick = e => { const ch = e.target.closest('.chip'); if (!ch) return; $$('#discf .chip').forEach(x => x.classList.toggle('on', x === ch)); const f = ch.dataset.f; $('#disc').innerHTML = disc.filter(al => f === 'all' || (f === 'album' ? al.type === 'album' : al.type !== 'album')).map(al => card(al, { sub: `${al.year} · ${al.type === 'single' ? 'Sencillo' : al.type === 'ep' ? 'EP' : 'Álbum'}` })).join(''); };
-      $('#artistRadio')?.addEventListener('click', async () => { const r = await deezer.artistRadio(id); player.playList(r, 0, { label: `Radio de ${a.name}`, href }); });
+      view().innerHTML = `<header class="artist-hero" style="--c:${rgb(c)}"><div class="ah-photo"><img src="${esc(a.picXL)}" alt=""></div><div class="ah-meta"><div class="eyebrow">Artista</div><h1 class="title-xl">${esc(a.name)}</h1><p class="byline">${fmtNum(a.fans)} seguidores${a.albums ? ` · ${a.albums} lanzamientos` : ''}</p></div></header>
+        <div class="page-body">${actions({ listKey: k, follow: following, extra: `<button class="pill ghost" id="artistRadio">${icons.radio} Radio</button>` })}
+        <div class="artist-grid"><section><h2>Populares</h2><div id="popular">${trackList(topT.slice(0, 5), { label, href, album: false })}</div>${topT.length > 5 ? '<button class="linkbtn" id="morePop">Ver más</button>' : ''}</section>
+        ${latest ? `<section><h2>Lo último</h2><a class="pickcard" href="#/album/${latest.id}">${sleeve(latest.cover)}<div><div class="tag">Nuevo</div><div class="ct">${esc(latest.title)}</div><div class="cs">${esc(latest.year)} · ${typeLabel(latest.type)}</div></div></a></section>` : ''}</div>
+        <section class="shelf"><div class="shelf-head"><h2>Discografía</h2></div><div class="chips" id="discf">${[['all', 'Todo'], ['album', 'Álbumes'], ['single', 'Sencillos y EP']].map(([v, l], i) => `<button class="chip${i ? '' : ' on'}" data-f="${v}">${l}</button>`).join('')}</div><div class="hscroll" id="disc">${disc.map(al => card(al, { sub: `${al.year} · ${typeLabel(al.type)}` })).join('')}</div></section>
+        ${shelf('Otros artistas en su órbita', related)}</div>`;
+      bindActions(view(), { tracks: topT, label, href, onSave: () => { lib.toggleSaved('artist', { kind: 'artist', id: a.id, name: a.name, pic: a.pic }); render(); } });
+      $('#morePop')?.addEventListener('click', e => { $('#popular').innerHTML = trackList(topT, { label, href, album: false }); e.target.remove(); });
+      $('#discf').onclick = e => { const ch = e.target.closest('.chip'); if (!ch) return; $$('#discf .chip').forEach(x => x.classList.toggle('on', x === ch)); const f = ch.dataset.f; $('#disc').innerHTML = disc.filter(al => f === 'all' || (f === 'album' ? al.type === 'album' : al.type !== 'album')).map(al => card(al, { sub: `${al.year} · ${typeLabel(al.type)}` })).join(''); };
+      $('#artistRadio').onclick = async () => { try { player.playList(await deezer.artistRadio(id), 0, { label: `Radio de ${a.name}`, href }); } catch { toast('No se pudo crear la radio'); } };
     };
     render();
-  } catch { if (!stale(seq)) view().innerHTML = errorState(); }
+  } catch { if (!stale(s)) view().innerHTML = errorState(); }
 }
 
-/* ================= ALBUM ================= */
+/* ======================= ÁLBUM ======================= */
 export async function album(id) {
-  const seq = ++renderSeq; view().innerHTML = skeleton();
+  const s = begin(); view().innerHTML = skeleton();
   try {
     const a = await deezer.album(id);
-    if (stale(seq)) return;
+    if (stale(s)) return;
     lib.pushVisited({ kind: 'album', id: a.id, title: a.title, cover: a.cover });
-    const c = await tintFrom(a.cover);
+    const c = await imageColor(a.cover); setTint(c);
     const label = a.title, href = `#/album/${id}`;
     const k = registerList(a.tracks, { label, href });
-    const total = a.duration || a.tracks.reduce((s, t) => s + t.dur, 0);
+    const total = a.duration || a.tracks.reduce((x, t) => x + t.dur, 0);
     const render = () => {
-      view().innerHTML = `<header class="hero" style="--c:${rgb(c)}">${img(a.coverXL, 'hero-art shadow')}<div class="hero-meta"><div class="eyebrow">${a.type === 'single' ? 'Sencillo' : a.type === 'ep' ? 'EP' : 'Álbum'}</div><h1 class="fit">${esc(a.title)}</h1>
-        <p class="byline"><a href="#/artist/${a.artistId}"><b>${esc(a.artist)}</b></a> · ${esc(a.year)} · ${plural(a.tracks.length, 'canción', 'canciones')}, <span class="muted">${fmtLong(total)}</span></p></div></header>
-        <div class="page-body">${heroActions({ listKey: k, saveKind: 'album', saved: lib.isSaved('album', a.id) })}
+      view().innerHTML = poster({ c, art: sleeve(a.coverXL, a.title), kind: typeLabel(a.type), title: a.title, cls: 'album-poster',
+        meta: `<a href="#/artista/${a.artistId}"><b>${esc(a.artist)}</b></a> · ${esc(a.year)} · ${plural(a.tracks.length, 'canción', 'canciones')} · ${fmtLong(total)}` })
+        + `<div class="page-body">${actions({ listKey: k, saveKind: 'album', saved: lib.isSaved('album', a.id) })}
         ${trackList(a.tracks, { label, href, album: false, cover: false })}
-        <p class="fine">${a.date ? new Date(a.date).toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' }) : ''}<br>${a.label ? '℗ ' + esc(a.label) : ''}</p>
-        <div id="moreBy"></div></div>`;
-      bindHero(view(), { tracks: a.tracks, label, href, onSave: () => { lib.toggleSaved('album', a); render(); } });
-      deezer.artistAlbums(a.artistId).then(list => { if (!stale(seq)) $('#moreBy').innerHTML = shelf(`Más de ${a.artist}`, list.filter(x => x.id !== a.id).slice(0, 14), { more: `#/artist/${a.artistId}` }); }).catch(() => {});
+        <p class="fine">${a.date ? new Date(a.date).toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' }) : ''}${a.label ? '<br>℗ ' + esc(a.label) : ''}</p><div id="moreBy"></div></div>`;
+      bindActions(view(), { tracks: a.tracks, label, href, onSave: () => { lib.toggleSaved('album', { ...a, kind: 'album' }); render(); } });
+      deezer.artistAlbums(a.artistId).then(list => { if (!stale(s)) $('#moreBy').innerHTML = shelf(`Más de ${a.artist}`, list.filter(x => x.id !== a.id).slice(0, 14), { more: `#/artista/${a.artistId}` }); }).catch(() => {});
     };
     render();
-  } catch { if (!stale(seq)) view().innerHTML = errorState(); }
+  } catch { if (!stale(s)) view().innerHTML = errorState(); }
 }
 
-/* ================= DEEZER PLAYLIST ================= */
+/* ======================= PLAYLIST PÚBLICA (Deezer) ======================= */
 export async function dzplaylist(id) {
-  const seq = ++renderSeq; view().innerHTML = skeleton();
+  const s = begin(); view().innerHTML = skeleton();
   try {
     const p = await deezer.playlist(id);
-    if (stale(seq)) return;
+    if (stale(s)) return;
     lib.pushVisited({ kind: 'dzplaylist', id: p.id, title: p.title, cover: p.cover });
-    const c = await tintFrom(p.cover);
-    const label = p.title, href = `#/dzplaylist/${id}`;
+    const c = await imageColor(p.cover); setTint(c);
+    const label = p.title, href = `#/lista/${id}`;
     const k = registerList(p.tracks, { label, href });
     const render = () => {
-      view().innerHTML = `<header class="hero" style="--c:${rgb(c)}">${img(p.coverXL, 'hero-art shadow')}<div class="hero-meta"><div class="eyebrow">Playlist pública</div><h1 class="fit">${esc(p.title)}</h1>
-        ${p.description ? `<p class="muted desc">${esc(p.description)}</p>` : ''}<p class="byline"><b>${esc(p.by)}</b> · ${p.fans ? fmtNum(p.fans) + ' guardados · ' : ''}${plural(p.tracks.length, 'canción', 'canciones')}, <span class="muted">${fmtLong(p.duration)}</span></p></div></header>
-        <div class="page-body">${heroActions({ listKey: k, saveKind: 'dzplaylist', saved: lib.isSaved('dzplaylist', p.id) })}${trackList(p.tracks, { label, href })}</div>`;
-      bindHero(view(), { tracks: p.tracks, label, href, onSave: () => { lib.toggleSaved('dzplaylist', p); render(); } });
+      view().innerHTML = poster({ c, art: img(p.coverXL, 'cover-art'), kind: 'Playlist', title: p.title, desc: p.description,
+        meta: `<b>${esc(p.by)}</b> · ${p.fans ? fmtNum(p.fans) + ' guardados · ' : ''}${plural(p.tracks.length, 'canción', 'canciones')} · ${fmtLong(p.duration)}` })
+        + `<div class="page-body">${actions({ listKey: k, saveKind: 'dzplaylist', saved: lib.isSaved('dzplaylist', p.id) })}${trackList(p.tracks, { label, href })}</div>`;
+      bindActions(view(), { tracks: p.tracks, label, href, onSave: () => { lib.toggleSaved('dzplaylist', { ...p, kind: 'dzplaylist' }); render(); } });
     };
     render();
-  } catch { if (!stale(seq)) view().innerHTML = errorState(); }
+  } catch { if (!stale(s)) view().innerHTML = errorState(); }
 }
 
-/* ================= USER PLAYLIST / LIKED ================= */
+/* ======================= PLAYLIST PROPIA ======================= */
 export async function playlist(id) {
-  const seq = ++renderSeq;
+  const s = begin();
   const p = lib.playlist(id);
-  if (!p) { view().innerHTML = '<div class="empty"><h3>Playlist no encontrada</h3></div>'; return; }
-  const c = await imageColor(p.tracks[0]?.cover); if (stale(seq)) return; setTint(c);
+  if (!p) { view().innerHTML = `<div class="empty"><h3>Playlist no encontrada</h3><p>Puede que se haya eliminado en otro dispositivo.</p><a class="pill" href="#/biblioteca">Ir a tu biblioteca</a></div>`; return; }
+  const c = await imageColor(p.tracks[0]?.cover); if (stale(s)) return; setTint(c);
   const label = p.name, href = `#/playlist/${id}`;
   const k = registerList(p.tracks, { label, href, playlistId: id });
-  const total = p.tracks.reduce((s, t) => s + (t.dur || 0), 0);
-  view().innerHTML = `<header class="hero" style="--c:${rgb(c)}"><button class="hero-art-btn" id="editPl" title="Editar detalles">${mosaic(p.tracks, 'hero-art shadow')}</button><div class="hero-meta"><div class="eyebrow">Playlist</div><h1 class="fit editable" id="plName">${esc(p.name)}</h1>
-    ${p.desc ? `<p class="muted desc">${esc(p.desc)}</p>` : ''}<p class="byline"><b>Tú</b> · ${plural(p.tracks.length, 'canción', 'canciones')}${total ? `, <span class="muted">${fmtLong(total)}</span>` : ''}</p></div></header>
-    <div class="page-body">${heroActions({ listKey: k })}
+  const total = p.tracks.reduce((x, t) => x + (t.dur || 0), 0);
+  const who = cloud.profile?.display_name || 'Tú';
+  view().innerHTML = poster({ c, art: `<button class="art-edit" id="editPl" title="Editar">${mosaic(p.tracks, 'cover-art')}</button>`, kind: p.isPublic ? 'Playlist pública' : 'Playlist', title: p.name, desc: p.desc,
+    meta: `<b>${esc(who)}</b> · ${plural(p.tracks.length, 'canción', 'canciones')}${total ? ' · ' + fmtLong(total) : ''}` })
+    + `<div class="page-body">${actions({ listKey: k })}
     ${p.tracks.length ? trackList(p.tracks, { label, href, playlistId: id, added: true, draggable: true }) : ''}
-    <section class="recommend"><h2>${p.tracks.length ? 'Recomendadas' : 'Busquemos algo para tu playlist'}</h2><p class="muted">${p.tracks.length ? 'Basadas en las canciones de esta playlist' : ''}</p>
-      <div class="search-inline">${icons.music}<input id="plSearch" type="search" placeholder="Busca canciones o episodios" autocomplete="off"></div><div id="plRec"></div></section></div>`;
-  bindHero(view(), { tracks: p.tracks, label, href, onMore: at => showMenu([
+    <section class="recommend"><h2>${p.tracks.length ? 'Recomendadas para esta playlist' : 'Vamos a llenarla'}</h2>
+      <div class="search-inline">${icons.music}<input id="plSearch" type="search" placeholder="Busca canciones para añadir" autocomplete="off"></div><div id="plRec"></div></section></div>`;
+  bindActions(view(), { tracks: p.tracks, label, href, onMore: at => showMenu([
     { icon: '✎', text: 'Editar detalles', run: () => editPlaylist(p) },
+    { icon: p.isPublic ? '🔒' : '🌍', text: p.isPublic ? 'Hacer privada' : 'Hacer pública', run: () => { if (!cloud.signedIn) return toast('Inicia sesión para compartir playlists'); lib.updatePlaylist(id, { isPublic: !p.isPublic }); toast(p.isPublic ? 'Ahora cualquiera con el enlace puede verla' : 'Ahora es privada'); } },
+    ...(p.isPublic ? [{ icon: '↗', text: 'Copiar enlace para compartir', run: () => share(p.name, `#/p/${id}`) }] : []),
     { icon: '☰', text: 'Añadir a la cola', run: () => player.addToQueue(p.tracks) },
-    { icon: '↗', text: 'Compartir', run: () => share(p.name, href) },
-    '-', { icon: '🗑', text: 'Eliminar', run: async () => { if (await confirmBox('¿Eliminar de Tu biblioteca?', `Se eliminará «${p.name}».`)) { lib.deletePlaylist(id); location.hash = '#/library'; } } }
+    '-', { icon: '🗑', text: 'Eliminar playlist', run: async () => { if (await confirmBox('¿Eliminar playlist?', `Se eliminará «${p.name}» de todos tus dispositivos.`)) { lib.deletePlaylist(id); location.hash = '#/biblioteca'; } } }
   ], at) });
-  $('#editPl').onclick = $('#plName').onclick = () => editPlaylist(p);
-  // add-songs helper: search or recommendations
+  $('#editPl').onclick = () => editPlaylist(p);
   const recBox = $('#plRec');
-  const showAdd = (tracks, title) => {
-    recBox.innerHTML = tracks.length ? `<div class="tracks addlist">${tracks.slice(0, 10).map((t, i) => `<div class="trow" data-i="${i}">
-      <div class="c-title">${img(t.cover, 'tcover')}<div class="tt"><div class="tname ellipsis">${esc(t.title)}</div><div class="tart ellipsis">${esc(t.artist)}</div></div></div><div class="c-album ellipsis muted">${esc(t.album)}</div><div><button class="pill ghost sm" data-add="${i}">Añadir</button></div></div>`).join('')}</div>` : `<p class="muted">${title || ''}</p>`;
+  const showAdd = tracks => {
+    recBox.innerHTML = tracks.length ? `<div class="addlist">${tracks.slice(0, 10).map((t, i) => `<div class="add-row">${img(t.cover, 'tcover')}<div class="tt"><div class="tname ellipsis">${esc(t.title)}</div><div class="tart ellipsis">${esc(t.artist)}</div></div><button class="pill ghost sm" data-add="${i}">Añadir</button></div>`).join('')}</div>` : '';
     recBox.onclick = e => { const b = e.target.closest('[data-add]'); if (b) { lib.addToPlaylist(id, tracks[+b.dataset.add]); playlist(id); } };
   };
   $('#plSearch').oninput = debounce(async e => { const q = e.target.value.trim(); if (!q) return loadRec(); try { showAdd(await deezer.search(q, 10)); } catch { /* */ } }, 300);
   async function loadRec() {
-    const seed = p.tracks[p.tracks.length - 1];
-    try {
-      const rec = seed?.artistId ? (await deezer.artistRadio(seed.artistId)) : await deezer.chartTracks(0, 20);
-      if (!stale(seq)) showAdd(rec.filter(t => !p.tracks.some(x => x.id === t.id)));
-    } catch { /* offline */ }
+    const seed = [...p.tracks].reverse().find(t => t.artistId);
+    try { const rec = seed ? await deezer.artistRadio(seed.artistId) : await deezer.chartTracks(0, 20); if (!stale(s)) showAdd(rec.filter(t => !p.tracks.some(x => x.id === t.id))); } catch { /* offline */ }
   }
   loadRec();
-  // drag & drop reorder
   let from = null;
-  view().querySelectorAll('.tracks[data-list] .trow[draggable]').forEach(row => {
+  $$('.tracks[data-list] .trow[draggable]', view()).forEach(row => {
     row.addEventListener('dragstart', () => { from = +row.dataset.i; row.classList.add('dragging'); });
     row.addEventListener('dragend', () => row.classList.remove('dragging'));
     row.addEventListener('dragover', e => { e.preventDefault(); row.classList.add('dropover'); });
@@ -296,56 +325,275 @@ export async function playlist(id) {
   });
 }
 function editPlaylist(p) {
-  import('./ui.js').then(({ modal }) => modal(`<h3>Editar detalles</h3><div class="edit-grid">${mosaic(p.tracks, 'edit-art')}<div><input class="field" id="epName" maxlength="80" value="${esc(p.name)}" placeholder="Nombre"><textarea class="field" id="epDesc" maxlength="300" placeholder="Añade una descripción opcional">${esc(p.desc || '')}</textarea></div></div><div class="acts"><button class="pill primary" data-ok>Guardar</button></div>`, (el, close) => {
+  modal(`<h3>Editar playlist</h3><div class="edit-grid">${mosaic(p.tracks, 'edit-art')}<div><input class="field" id="epName" maxlength="100" value="${esc(p.name)}" placeholder="Nombre"><textarea class="field" id="epDesc" maxlength="300" placeholder="Descripción (opcional)">${esc(p.desc || '')}</textarea></div></div><div class="acts"><button class="pill ghost" data-close>Cancelar</button><button class="pill primary" data-ok>Guardar</button></div>`, (el, close) => {
     el.querySelector('[data-ok]').onclick = () => { lib.updatePlaylist(p.id, { name: el.querySelector('#epName').value.trim() || p.name, desc: el.querySelector('#epDesc').value.trim() }); close(); playlist(p.id); };
-  }));
+  });
+}
+
+/* shared public playlist from another user */
+export async function shared(id) {
+  const s = begin(); view().innerHTML = skeleton();
+  if (lib.playlist(id)) { location.replace('#/playlist/' + id); return; }
+  try {
+    const p = await cloud.publicPlaylist(id);
+    if (stale(s)) return;
+    if (!p) { view().innerHTML = '<div class="empty"><h3>Esta playlist es privada o no existe</h3></div>'; return; }
+    const c = await imageColor(p.tracks[0]?.cover); setTint(c);
+    const label = p.name, href = `#/p/${id}`;
+    const k = registerList(p.tracks, { label, href });
+    view().innerHTML = poster({ c, art: mosaic(p.tracks, 'cover-art'), kind: 'Playlist compartida', title: p.name, desc: p.desc, meta: plural(p.tracks.length, 'canción', 'canciones') })
+      + `<div class="page-body">${actions({ listKey: k, extra: '<button class="pill ghost" id="copyPl">Guardar una copia</button>' })}${trackList(p.tracks, { label, href })}</div>`;
+    bindActions(view(), { tracks: p.tracks, label, href });
+    $('#copyPl').onclick = () => { const n = lib.createPlaylist(p.name, p.tracks, p.desc); toast('Copia guardada en tu biblioteca'); location.hash = '#/playlist/' + n.id; };
+  } catch { if (!stale(s)) view().innerHTML = errorState(); }
 }
 
 export function liked() {
-  ++renderSeq; setTint([80, 56, 237]);
-  const label = 'Tus me gusta', href = '#/liked';
+  begin(); setTint([110, 70, 240]);
+  const label = 'Me gusta', href = '#/megusta';
   const k = registerList(lib.liked, { label, href });
-  view().innerHTML = `<header class="hero" style="--c:rgb(80,56,237)"><div class="hero-art shadow liked-art big">${icons.heartOn}</div><div class="hero-meta"><div class="eyebrow">Playlist</div><h1 class="fit">Tus me gusta</h1><p class="byline"><b>Tú</b> · ${plural(lib.liked.length, 'canción', 'canciones')}</p></div></header>
-    <div class="page-body">${heroActions({ listKey: k })}${lib.liked.length ? trackList(lib.liked, { label, href, added: true }) : `<div class="empty"><div class="empty-ico">${icons.heart}</div><h3>Las canciones que te gustan aparecerán aquí</h3><p>Guarda canciones tocando el icono del corazón.</p><a class="pill primary" href="#/search">Buscar canciones</a></div>`}</div>`;
-  bindHero(view(), { tracks: lib.liked, label, href });
+  view().innerHTML = poster({ c: [110, 70, 240], art: `<div class="cover-art liked-art">${icons.heartOn}</div>`, kind: 'Playlist', title: 'Me gusta', meta: `<b>${esc(cloud.profile?.display_name || 'Tú')}</b> · ${plural(lib.liked.length, 'canción', 'canciones')}` })
+    + `<div class="page-body">${actions({ listKey: k })}${lib.liked.length ? trackList(lib.liked, { label, href, added: true }) : `<div class="empty"><div class="empty-ico">${icons.heart}</div><h3>Aquí vivirán tus favoritas</h3><p>Toca el corazón de cualquier canción para guardarla.</p><a class="pill primary" href="#/explorar">Explorar música</a></div>`}</div>`;
+  bindActions(view(), { tracks: lib.liked, label, href });
 }
 
-/* ================= LIBRARY ================= */
+/* ======================= BIBLIOTECA ======================= */
 let libFilter = store.get('libFilter', 'all'), libSort = store.get('libSort', 'recent');
 export function library() {
-  ++renderSeq; setTint([40, 40, 60]);
+  begin(); setTint([60, 50, 110]);
   const items = [
-    { kind: 'liked', id: 'liked', title: 'Tus me gusta', sub: `Playlist · ${plural(lib.liked.length, 'canción', 'canciones')}`, added: Infinity, pin: true },
-    ...lib.playlists.map(p => ({ ...p, kind: 'playlist', title: p.name, sub: `Playlist · Tú`, added: p.created })),
-    ...lib.dzplaylists.map(p => ({ ...p, title: p.title, sub: `Playlist · ${p.by}` })),
-    ...lib.albums.map(a => ({ ...a, sub: `Álbum · ${a.artist}` })),
-    ...lib.artists.map(a => ({ ...a, title: a.name, sub: 'Artista' }))
+    { kind: 'liked', id: 'liked', title: 'Me gusta', sub: plural(lib.liked.length, 'canción', 'canciones'), added: Infinity, pin: 1 },
+    ...lib.playlists.map(p => ({ ...p, kind: 'playlist', title: p.name, sub: `Playlist${p.isPublic ? ' pública' : ''} · ${p.tracks.length}`, added: p.created })),
+    ...lib.dzplaylists.map(p => ({ ...p, kind: 'dzplaylist', sub: `Playlist · ${p.by}` })),
+    ...lib.albums.map(a => ({ ...a, kind: 'album', sub: `Álbum · ${a.artist}` })),
+    ...lib.artists.map(a => ({ ...a, kind: 'artist', title: a.name, sub: 'Artista' }))
   ];
-  const f = { all: () => true, playlists: i => ['liked', 'playlist', 'dzplaylist'].includes(i.kind), artists: i => i.kind === 'artist', albums: i => i.kind === 'album' }[libFilter] || (() => true);
-  const sorted = items.filter(f).sort((a, b) => b.pin - a.pin || (libSort === 'alpha' ? (a.title || '').localeCompare(b.title || '') : (b.added || 0) - (a.added || 0)));
-  const localK = lib.local.length ? registerList(lib.local, { label: 'Archivos locales', href: '#/library' }) : '';
-  void localK;
-  view().innerHTML = `<div class="lib-head"><h1>Tu biblioteca</h1><div class="lib-actions"><button class="pill primary" id="newPl">＋ Crear playlist</button><button class="pill ghost" id="importBtn">Importar archivos</button></div></div>
-    <div class="chips"><span class="chips-l">${[['all', 'Todo'], ['playlists', 'Playlists'], ['artists', 'Artistas'], ['albums', 'Álbumes']].map(([v, l]) => `<button class="chip${v === libFilter ? ' on' : ''}" data-lf="${v}">${l}</button>`).join('')}</span>
-      <button class="chip ghost" id="libSort">${libSort === 'alpha' ? 'Alfabético' : 'Recientes'} ⇅</button></div>
-    <div class="cgrid lib-grid">${sorted.map(i => card(i.kind === 'liked' ? { ...i } : i, { sub: i.sub })).join('')}</div>
-    ${sorted.length <= 1 && libFilter !== 'all' ? '<div class="empty"><p>Todavía no hay nada aquí. Guarda álbumes, sigue artistas o crea playlists.</p></div>' : ''}
-    <section class="shelf"><div class="shelf-head"><h2>Archivos locales</h2></div>${lib.local.length ? trackList(lib.local, { label: 'Archivos locales', href: '#/library' }) : `<div class="dropzone" id="dropzone">${icons.music}<div><b>Arrastra aquí tu música</b><br><span class="muted">MP3, M4A, FLAC, WAV, OGG… Se guarda en este dispositivo y funciona sin conexión.</span></div></div>`}</section>`;
-  $('#newPl').onclick = async () => { const n = await prompt('Nueva playlist', '', 'Crear'); if (n !== null) { const p = lib.createPlaylist(n); location.hash = '#/playlist/' + p.id; } };
+  const f = { all: () => true, playlists: i => ['liked', 'playlist', 'dzplaylist'].includes(i.kind), artists: i => i.kind === 'artist', albums: i => i.kind === 'album', files: () => false }[libFilter] || (() => true);
+  const sorted = items.filter(f).sort((a, b) => (b.pin || 0) - (a.pin || 0) || (libSort === 'alpha' ? (a.title || '').localeCompare(b.title || '') : (b.added || 0) - (a.added || 0)));
+  view().innerHTML = `<div class="lib-head"><h1>Tu biblioteca</h1><div class="lib-actions"><button class="pill primary" id="newPl">${icons.plus} Nueva playlist</button><button class="pill ghost" id="importBtn">Importar archivos</button></div></div>
+    ${cloud.signedIn ? '' : `<a class="cta slim" href="#/cuenta"><div><b>Guárdalo todo en tu cuenta</b><p>Inicia sesión para sincronizar tu biblioteca entre dispositivos.</p></div><span class="pill primary">Entrar</span></a>`}
+    <div class="chips"><span class="chips-l">${[['all', 'Todo'], ['playlists', 'Playlists'], ['albums', 'Álbumes'], ['artists', 'Artistas'], ['files', 'Archivos']].map(([v, l]) => `<button class="chip${v === libFilter ? ' on' : ''}" data-lf="${v}">${l}</button>`).join('')}</span>
+      <button class="chip ghost" id="libSort">${libSort === 'alpha' ? 'A-Z' : 'Recientes'} ⇅</button></div>
+    ${libFilter !== 'files' ? `<div class="cgrid lib-grid">${sorted.map(i => card(i, { sub: i.sub })).join('')}</div>` : ''}
+    ${(libFilter === 'all' || libFilter === 'files') ? `<section class="shelf"><div class="shelf-head"><h2>Archivos de este dispositivo</h2></div>${lib.local.length ? trackList(lib.local, { label: 'Archivos locales', href: '#/biblioteca' }) : `<button class="dropzone" id="dropzone">${icons.music}<div><b>Suelta aquí tu música</b><br><span class="muted">MP3, M4A, FLAC, WAV, OGG… Suena completa y sin conexión.</span></div></button>`}</section>` : ''}`;
+  $('#newPl').onclick = async () => { const n = await prompt('Nueva playlist', '', 'Crear'); if (n !== null) location.hash = '#/playlist/' + lib.createPlaylist(n).id; };
   $('#importBtn').onclick = () => $('#filePicker').click();
   $('#dropzone')?.addEventListener('click', () => $('#filePicker').click());
-  view().querySelectorAll('[data-lf]').forEach(b => b.onclick = () => { libFilter = b.dataset.lf; store.set('libFilter', libFilter); library(); });
+  $$('[data-lf]', view()).forEach(b => b.onclick = () => { libFilter = b.dataset.lf; store.set('libFilter', libFilter); library(); });
   $('#libSort').onclick = () => { libSort = libSort === 'alpha' ? 'recent' : 'alpha'; store.set('libSort', libSort); library(); };
 }
 
-/* ================= QUEUE ================= */
+/* ======================= COLA ======================= */
 export function queue() {
-  ++renderSeq; setTint([40, 40, 60]);
+  begin(); setTint([60, 50, 110]);
   const cur = player.current, man = player.manual, up = player.upcoming;
-  const nowK = cur ? registerList([cur], { label: 'now' }) : '';
   view().innerHTML = `<h1>Cola</h1>
-    ${cur ? `<h2 class="qh">Sonando ahora</h2>${trackList([cur], { label: player.ctx.label, href: player.ctx.href, numbers: false }).replace(/data-list="L\d+"/, `data-list="${nowK}" data-now="1"`)}` : '<div class="empty"><h3>Añade algo a tu cola</h3><p>Busca música y toca «Añadir a la cola».</p></div>'}
-    ${man.length ? `<div class="qhead"><h2 class="qh">Siguiente en la cola</h2><button class="linkbtn" id="clearQ">Borrar cola</button></div>${trackList(man, { numbers: false }).replace(/data-list="(L\d+)"/, 'data-list="$1" data-manual="1"')}` : ''}
-    ${up.length ? `<h2 class="qh">A continuación de: <a href="${esc(player.ctx.href || '#/queue')}">${esc(player.ctx.label || 'tu selección')}</a></h2>${trackList(up.slice(0, 80), { numbers: false }).replace(/data-list="(L\d+)"/, 'data-list="$1" data-upcoming="1"')}` : ''}`;
+    ${cur ? `<h2 class="qh">Sonando</h2>${trackList([cur], { label: player.ctx.label, href: player.ctx.href, numbers: false, flag: 'data-now="1"' })}` : `<div class="empty"><h3>La cola está vacía</h3><p>Busca música y usa «Añadir a la cola».</p><a class="pill primary" href="#/explorar">Explorar</a></div>`}
+    ${man.length ? `<div class="qhead"><h2 class="qh">Siguiente en tu cola</h2><button class="linkbtn" id="clearQ">Vaciar</button></div>${trackList(man, { numbers: false, flag: 'data-manual="1"' })}` : ''}
+    ${up.length ? `<h2 class="qh">Después, de <a href="${esc(player.ctx.href || '#/cola')}">${esc(player.ctx.label || 'tu selección')}</a></h2>${trackList(up.slice(0, 80), { numbers: false, flag: 'data-upcoming="1"' })}` : ''}`;
   $('#clearQ')?.addEventListener('click', () => player.clearManual());
 }
+
+/* ======================= CUENTA (acceso / registro) ======================= */
+export function account(mode = 'entrar') {
+  begin(); setTint([110, 60, 200]);
+  if (cloud.signedIn) { location.replace('#/perfil'); return; }
+  view().innerHTML = `<div class="auth">
+    <div class="auth-art"><div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div>
+      <div class="auth-copy"><img src="icons/icon.svg" alt="" width="56" height="56"><h1>Tu música,<br>en órbita.</h1>
+      <ul><li>Canciones completas dentro de la app</li><li>Tu biblioteca sincronizada en todos tus dispositivos</li><li>Playlists para compartir con un enlace</li><li>Temas, letras y mucho más</li></ul></div></div>
+    <div class="auth-card">
+      <div class="seg" role="tablist"><button data-m="entrar" class="${mode === 'entrar' ? 'on' : ''}">Entrar</button><button data-m="registro" class="${mode === 'registro' ? 'on' : ''}">Crear cuenta</button></div>
+      <form id="authForm" novalidate>
+        <label class="fl" data-only="registro"><span>Nombre</span><input class="field" name="name" autocomplete="nickname" maxlength="60" placeholder="¿Cómo te llamamos?"></label>
+        <label class="fl"><span>Correo</span><input class="field" name="email" type="email" autocomplete="email" required placeholder="tu@correo.com"></label>
+        <label class="fl" data-hide="recuperar"><span>Contraseña</span><div class="pw"><input class="field" name="password" type="password" autocomplete="current-password" minlength="8" placeholder="Mínimo 8 caracteres"><button type="button" class="pw-eye" aria-label="Mostrar contraseña">👁</button></div></label>
+        <div class="pw-meter" data-only="registro"><i></i></div>
+        <p class="form-msg" id="authMsg" role="alert"></p>
+        <button class="pill primary block" type="submit" id="authSubmit"></button>
+        <button class="linkbtn" type="button" id="forgot" data-only="entrar">¿Olvidaste tu contraseña?</button>
+        <button class="linkbtn" type="button" id="backLogin" data-only="recuperar">Volver a entrar</button>
+      </form>
+      <p class="fine center">Puedes seguir explorando sin cuenta: escucharás vistas previas de 30 s.</p>
+    </div></div>`;
+  const form = $('#authForm'), msg = $('#authMsg');
+  const setMode = m => {
+    mode = m;
+    $$('.seg button', view()).forEach(b => b.classList.toggle('on', b.dataset.m === m));
+    $$('[data-only]', form).forEach(el => { el.hidden = el.dataset.only !== m; });
+    $$('[data-hide]', form).forEach(el => { el.hidden = el.dataset.hide === m; });
+    form.password.autocomplete = m === 'registro' ? 'new-password' : 'current-password';
+    $('#authSubmit').textContent = { entrar: 'Entrar', registro: 'Crear cuenta', recuperar: 'Enviar enlace de recuperación' }[m];
+    msg.textContent = ''; msg.className = 'form-msg';
+    history.replaceState(null, '', '#/cuenta' + (m === 'registro' ? '/registro' : ''));
+  };
+  $$('.seg button', view()).forEach(b => b.onclick = () => setMode(b.dataset.m));
+  $('#forgot').onclick = () => setMode('recuperar');
+  $('#backLogin').onclick = () => setMode('entrar');
+  $('.pw-eye', form).onclick = () => { form.password.type = form.password.type === 'password' ? 'text' : 'password'; };
+  form.password.oninput = () => {
+    const v = form.password.value; let sc = 0;
+    if (v.length >= 8) sc++; if (v.length >= 12) sc++; if (/[A-Z]/.test(v) && /[a-z]/.test(v)) sc++; if (/\d/.test(v)) sc++; if (/[^A-Za-z0-9]/.test(v)) sc++;
+    $('.pw-meter i', form).style.width = (sc / 5 * 100) + '%'; $('.pw-meter', form).dataset.s = sc;
+  };
+  form.onsubmit = async e => {
+    e.preventDefault();
+    const email = form.email.value.trim(), pw = form.password.value, name = form.name.value.trim();
+    const fail = t => { msg.textContent = t; msg.className = 'form-msg err'; };
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail('Escribe un correo válido.');
+    if (mode !== 'recuperar' && pw.length < (mode === 'registro' ? 8 : 6)) return fail(mode === 'registro' ? 'La contraseña debe tener al menos 8 caracteres.' : 'Escribe tu contraseña.');
+    const btn = $('#authSubmit'); btn.disabled = true; btn.classList.add('busy');
+    try {
+      if (mode === 'entrar') { await cloud.signIn(email, pw); toast('¡Hola de nuevo!'); location.hash = store.get('afterLogin', '#/inicio'); store.del('afterLogin'); }
+      else if (mode === 'registro') {
+        const r = await cloud.signUp(email, pw, name || email.split('@')[0]);
+        if (r.needsConfirm) { setMode('entrar'); form.email.value = email; msg.className = 'form-msg ok'; msg.textContent = 'Te hemos enviado un correo para confirmar tu cuenta. Ábrelo y después entra aquí.'; }
+        else { toast('¡Bienvenido a Listentoo!'); location.hash = '#/inicio'; }
+      } else { await cloud.resetPassword(email); msg.className = 'form-msg ok'; msg.textContent = 'Si existe una cuenta con ese correo, recibirás un enlace para crear una nueva contraseña.'; }
+    } catch (err) { fail(err.message); }
+    finally { btn.disabled = false; btn.classList.remove('busy'); }
+  };
+  setMode(mode);
+}
+
+/* ======================= PERFIL ======================= */
+export async function profile() {
+  const s = begin(); setTint([90, 60, 180]);
+  if (!cloud.signedIn) { store.set('afterLogin', '#/perfil'); location.replace('#/cuenta'); return; }
+  const pr = cloud.profile || {}, email = cloud.user.email;
+  view().innerHTML = `<header class="profile-hero"><button class="avatar-xl" id="hueBtn" style="--h:${pr.avatar_hue ?? 275}" title="Cambiar color">${esc((pr.display_name || email).charAt(0).toUpperCase())}</button>
+      <div><div class="eyebrow">Perfil${cloud.isAdmin ? ' · Administrador' : ''}</div><h1 class="title-xl">${esc(pr.display_name || email.split('@')[0])}</h1><p class="byline">${esc(email)}</p>
+      <div class="stats-row"><span><b>${lib.liked.length}</b> me gusta</span><span><b>${lib.playlists.length}</b> playlists</span><span><b>${lib.artists.length}</b> artistas</span><span id="playsCount"><b>…</b> escuchas</span></div></div></header>
+    <div class="page-body">
+      <section class="panel-grid">
+        <div class="glass-card"><h3>Tus artistas del mes</h3><div id="topArtists" class="rank"><div class="sk sk-t"></div></div></div>
+        <div class="glass-card"><h3>Cuenta</h3>
+          <label class="fl"><span>Nombre visible</span><div class="row"><input class="field" id="pfName" maxlength="60" value="${esc(pr.display_name || '')}"><button class="pill" id="pfSave">Guardar</button></div></label>
+          <label class="fl"><span>Color del avatar</span><input type="range" id="pfHue" min="0" max="360" value="${pr.avatar_hue ?? 275}" class="hue"></label>
+          <div class="row-btns"><button class="pill ghost" id="pfPw">Cambiar contraseña</button><a class="pill ghost" href="#/temas">Temas</a>${cloud.isAdmin ? '<a class="pill ghost" href="#/admin">Panel de admin</a>' : ''}</div></div>
+        <div class="glass-card"><h3>Reproducción</h3>
+          <label class="switch"><span><b>Reproducción automática</b><small>Al terminar, sigue con canciones parecidas.</small></span><input type="checkbox" id="pfAuto" ${lib.settings.autoplay ? 'checked' : ''}><i></i></label>
+          <label class="switch"><span><b>Notificaciones de canción</b><small>Aviso con controles al cambiar de canción cuando la app está en segundo plano.</small></span><input type="checkbox" id="pfNotify" ${lib.settings.notify ? 'checked' : ''}><i></i></label></div>
+        <div class="glass-card"><h3>Datos</h3><p class="muted small">Tu biblioteca se guarda cifrada en tránsito en tu cuenta y se sincroniza en tiempo real.</p>
+          <div class="row-btns"><button class="pill ghost" id="pfExp">Exportar copia</button><button class="pill ghost" id="pfImp">Importar copia</button><button class="pill ghost" id="pfHist">Borrar historial</button></div>
+          <input type="file" id="pfImpFile" accept="application/json" hidden></div>
+      </section>
+      <div class="danger-zone"><button class="pill ghost" id="pfOut">Cerrar sesión</button><button class="linkbtn danger-t" id="pfDel">Eliminar mi cuenta</button></div>
+    </div>`;
+  cloud.stats().then(plays => {
+    if (stale(s)) return;
+    $('#playsCount').innerHTML = `<b>${plays.length >= 1000 ? '1000+' : plays.length}</b> escuchas`;
+    const monthAgo = Date.now() - 30 * 864e5, cnt = {};
+    plays.filter(p => Date.parse(p.played_at) > monthAgo).forEach(p => { cnt[p.artist] = { n: (cnt[p.artist]?.n || 0) + 1, cover: cnt[p.artist]?.cover || p.cover }; });
+    const top = Object.entries(cnt).sort((a, b) => b[1].n - a[1].n).slice(0, 5);
+    $('#topArtists').innerHTML = top.length ? top.map(([a, v], i) => `<div class="rank-row"><span class="rk">${i + 1}</span>${img(v.cover)}<b class="ellipsis">${esc(a)}</b><span class="muted">${plural(v.n, 'escucha', 'escuchas')}</span></div>`).join('') : '<p class="muted small">Escucha música y aquí aparecerá tu ranking.</p>';
+  }).catch(() => {});
+  $('#pfSave').onclick = async () => { try { await cloud.updateProfile({ display_name: $('#pfName').value.trim().slice(0, 60) || null }); toast('Perfil actualizado'); profile(); } catch (e) { toast(e.message); } };
+  const hue = $('#pfHue'); hue.oninput = () => $('#hueBtn').style.setProperty('--h', hue.value);
+  hue.onchange = () => cloud.updateProfile({ avatar_hue: +hue.value }).catch(e => toast(e.message));
+  $('#hueBtn').onclick = () => { hue.value = (+hue.value + 47) % 360; hue.oninput(); hue.onchange(); };
+  $('#pfPw').onclick = () => changePassword();
+  $('#pfAuto').onchange = e => lib.setSetting('autoplay', e.target.checked);
+  $('#pfNotify').onchange = async e => {
+    if (e.target.checked) {
+      if (!('Notification' in window)) { toast('Este dispositivo no admite notificaciones web'); e.target.checked = false; return; }
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') { toast('Permiso de notificaciones denegado'); e.target.checked = false; return; }
+    }
+    lib.setSetting('notify', e.target.checked);
+  };
+  $('#pfExp').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([lib.export()], { type: 'application/json' })); a.download = `listentoo-${new Date().toISOString().slice(0, 10)}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); };
+  $('#pfImp').onclick = () => $('#pfImpFile').click();
+  $('#pfImpFile').onchange = async e => { try { lib.import(await e.target.files[0].text()); toast('Copia importada'); } catch (err) { toast(err.message || 'Archivo no válido'); } };
+  $('#pfHist').onclick = async () => { if (await confirmBox('¿Borrar historial?', 'Se borrará tu historial de escucha en todos tus dispositivos.', 'Borrar')) { await cloud.clearHistory(); lib.replaceAll({ recent: [] }); toast('Historial borrado'); profile(); } };
+  $('#pfOut').onclick = async () => { await cloud.signOut(); toast('Has cerrado sesión'); location.hash = '#/inicio'; };
+  $('#pfDel').onclick = async () => {
+    if (!await confirmBox('¿Eliminar tu cuenta?', 'Se borrarán para siempre tu perfil, tu biblioteca, tus playlists y tu historial. No se puede deshacer.', 'Eliminar cuenta')) return;
+    try { await cloud.deleteAccount(); toast('Tu cuenta se ha eliminado'); location.hash = '#/inicio'; } catch (e) { toast(e.message); }
+  };
+}
+export function changePassword(recovery = false) {
+  modal(`<h3>${recovery ? 'Crea una nueva contraseña' : 'Cambiar contraseña'}</h3><label class="fl"><span>Nueva contraseña</span><input class="field" id="np1" type="password" autocomplete="new-password" minlength="8" placeholder="Mínimo 8 caracteres"></label><label class="fl"><span>Repítela</span><input class="field" id="np2" type="password" autocomplete="new-password"></label><p class="form-msg" id="npMsg"></p><div class="acts"><button class="pill ghost" data-close>Cancelar</button><button class="pill primary" data-ok>Guardar</button></div>`, (el, close) => {
+    el.querySelector('#np1').focus();
+    el.querySelector('[data-ok]').onclick = async () => {
+      const a = el.querySelector('#np1').value, b = el.querySelector('#np2').value, m = el.querySelector('#npMsg');
+      if (a.length < 8) { m.textContent = 'Mínimo 8 caracteres.'; m.className = 'form-msg err'; return; }
+      if (a !== b) { m.textContent = 'Las contraseñas no coinciden.'; m.className = 'form-msg err'; return; }
+      try { await cloud.updatePassword(a); close(); toast('Contraseña actualizada'); } catch (e) { m.textContent = e.message; m.className = 'form-msg err'; }
+    };
+  });
+}
+
+/* ======================= TEMAS ======================= */
+export function themes() {
+  begin(); setTint([90, 60, 180]);
+  const s = lib.settings;
+  const swatch = (id, t) => {
+    const r = id === 'sistema' ? null : t;
+    const style = r ? `--pb:${r.bg};--pi:${r.ink};--ps:${r.sub};--pa:${r.accent};--p1:${r.aur[0]};--p2:${r.aur[1]};--p3:${r.aur[2]}` : '';
+    return `<button class="theme-card${s.theme === id ? ' on' : ''}${id === 'sistema' ? ' sys' : ''}" data-theme="${id}" style="${style}">
+      <div class="tc-prev"><i class="tb1"></i><i class="tb2"></i><i class="tb3"></i><div class="tc-ui"><span class="tc-isle"></span><span class="tc-line l1"></span><span class="tc-line l2"></span><span class="tc-cards"><b></b><b></b><b></b></span><span class="tc-dock"></span></div></div>
+      <div class="tc-name">${esc(t.name)}${s.theme === id ? ` ${icons.check}` : ''}</div><small>${id === 'sistema' ? 'Claro u oscuro según tu dispositivo' : t.mode === 'light' ? 'Claro' : 'Oscuro'}</small></button>`;
+  };
+  view().innerHTML = `<h1>Temas</h1><p class="muted lead">Elige cómo se ve Listentoo. Se aplica en la app instalada y en la web${cloud.signedIn ? ', y se sincroniza con tu cuenta' : ''}.</p>
+    <div class="theme-grid">${Object.entries(THEMES).map(([id, t]) => swatch(id, t)).join('')}</div>
+    <section class="glass-card opts"><h3>Ajustes visuales</h3>
+      <label class="switch"><span><b>Color dinámico</b><small>El fondo y el acento toman el color de la portada que suena.</small></span><input type="checkbox" data-opt="dynamic" ${s.dynamic ? 'checked' : ''}><i></i></label>
+      <label class="switch"><span><b>Aurora en movimiento</b><small>Anima suavemente el fondo. Desactívalo para ahorrar batería.</small></span><input type="checkbox" data-opt="motion" ${s.motion ? 'checked' : ''}><i></i></label>
+      <label class="switch"><span><b>Vinilo girando</b><small>La portada gira en el reproductor mientras suena.</small></span><input type="checkbox" data-opt="spin" ${s.spin ? 'checked' : ''}><i></i></label>
+    </section>`;
+  $$('.theme-card', view()).forEach(b => b.onclick = () => { lib.setSetting('theme', b.dataset.theme); applyTheme(); themes(); });
+  $$('[data-opt]', view()).forEach(i => i.onchange = () => { lib.setSetting(i.dataset.opt, i.checked); applyTheme(); });
+  void resolveTheme;
+}
+
+/* ======================= ADMIN ======================= */
+export async function admin() {
+  const s = begin(); setTint([200, 60, 120]);
+  if (!cloud.signedIn) { store.set('afterLogin', '#/admin'); location.replace('#/cuenta'); return; }
+  if (!cloud.isAdmin) { view().innerHTML = '<div class="empty"><h3>Acceso restringido</h3><p>Esta sección es solo para la administración.</p></div>'; return; }
+  view().innerHTML = `<div class="lib-head"><h1>Panel de admin</h1><button class="pill ghost" id="admRefresh">Actualizar</button></div><div id="adm">${skeleton(4)}</div>`;
+  $('#admRefresh').onclick = () => admin();
+  try {
+    const [o, users, ann] = await Promise.all([cloud.admin.overview(), cloud.admin.users(), cloud.admin.getAnnouncement()]);
+    if (stale(s)) return;
+    const max = Math.max(1, ...o.daily.map(d => d.n));
+    const days = Array.from({ length: 14 }, (_, i) => { const d = new Date(Date.now() - (13 - i) * 864e5).toISOString().slice(0, 10); return { d, n: o.daily.find(x => x.day === d)?.n || 0 }; });
+    const kpi = (v, l) => `<div class="kpi"><b>${fmtNum(v)}</b><span>${l}</span></div>`;
+    $('#adm').innerHTML = `
+      <div class="kpis">${kpi(o.users, 'usuarios')}${kpi(o.users_7d, 'nuevos (7 días)')}${kpi(o.active_24h, 'activos hoy')}${kpi(o.plays_24h, 'escuchas hoy')}${kpi(o.plays, 'escuchas totales')}${kpi(o.playlists, 'playlists')}${kpi(o.matches, 'canciones completas en caché')}${kpi(o.lookups_today, 'búsquedas YouTube hoy')}</div>
+      <section class="panel-grid">
+        <div class="glass-card wide"><h3>Escuchas · últimos 14 días</h3><div class="bars">${days.map(d => `<div class="bar" style="--v:${d.n / max}" title="${d.d}: ${d.n}"><i></i><small>${d.d.slice(8)}</small></div>`).join('')}</div></div>
+        <div class="glass-card"><h3>Reproducción completa</h3>
+          <p class="status ${o.youtube_configured ? 'ok' : 'warn'}">${o.youtube_configured ? '● Activada para todos los usuarios con cuenta' : '● Desactivada: los usuarios escuchan vistas previas de 30 s'}</p>
+          <p class="muted small">Pega una clave de la <b>YouTube Data API v3</b>. Se guarda solo en el servidor: ningún usuario puede leerla. Cada canción nueva cuesta ~101 unidades de cuota (10.000/día gratis ≈ 99 canciones nuevas al día); las ya encontradas se reutilizan para todos sin coste.</p>
+          <ol class="steps"><li><a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener">Activa YouTube Data API v3</a> en Google Cloud.</li><li>En <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Credenciales</a>, crea una clave de API y restríngela a «YouTube Data API v3».</li><li>Pégala aquí.</li></ol>
+          <div class="row"><input class="field" id="ytKey" type="password" placeholder="AIza…" autocomplete="off" spellcheck="false"><button class="pill primary" id="ytSave">Guardar</button></div>
+          <div class="row-btns"><button class="pill ghost sm" id="ytTest">Probar con una canción</button>${o.youtube_configured ? '<button class="pill ghost sm" id="ytDel">Quitar clave</button>' : ''}</div><p class="small muted" id="ytMsg"></p></div>
+        <div class="glass-card"><h3>Anuncio para todos</h3><p class="muted small">Aparece en el inicio de todos los usuarios al instante.</p>
+          <textarea class="field" id="annText" maxlength="280" placeholder="Ej.: ¡Nuevos temas disponibles!">${esc(ann.text || '')}</textarea>
+          <div class="row"><select class="field" id="annTone">${[['info', 'Información'], ['ok', 'Novedad'], ['warn', 'Aviso']].map(([v, l]) => `<option value="${v}" ${ann.tone === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+          <label class="switch inline"><input type="checkbox" id="annOn" ${ann.active ? 'checked' : ''}><i></i><span>Visible</span></label></div>
+          <button class="pill primary" id="annSave">Publicar</button></div>
+        <div class="glass-card"><h3>Más escuchadas · 30 días</h3><div class="rank">${o.top_tracks.length ? o.top_tracks.map((t, i) => `<div class="rank-row"><span class="rk">${i + 1}</span>${img(t.cover)}<span class="ellipsis"><b>${esc(t.title)}</b><small class="muted"> · ${esc(t.artist)}</small></span><span class="muted">${t.n}</span></div>`).join('') : '<p class="muted small">Aún no hay escuchas.</p>'}</div></div>
+      </section>
+      <section class="glass-card"><h3>Usuarios (${users.length})</h3><div class="table-wrap"><table class="utable"><thead><tr><th>Usuario</th><th>Correo</th><th>Alta</th><th>Último acceso</th><th>Escuchas</th><th>Estado</th></tr></thead><tbody>
+        ${users.map(u => `<tr><td>${avatar(u.display_name || u.email, (u.email.length * 47) % 360, 'sm')} ${esc(u.display_name || '—')}${u.is_admin ? ' <span class="tag">Admin</span>' : ''}</td><td>${esc(u.email)}</td><td>${new Date(u.created_at).toLocaleDateString('es')}</td><td>${u.last_sign_in_at ? new Date(u.last_sign_in_at).toLocaleString('es', { dateStyle: 'short', timeStyle: 'short' }) : '—'}</td><td>${u.plays}</td><td>${u.confirmed ? '<span class="ok-t">Confirmado</span>' : '<span class="warn-t">Pendiente</span>'}</td></tr>`).join('')}
+      </tbody></table></div></section>`;
+    const ytMsg = $('#ytMsg');
+    $('#ytSave').onclick = async () => {
+      const k = $('#ytKey').value.trim(); if (!/^AIza[0-9A-Za-z_-]{30,}$/.test(k)) { ytMsg.textContent = 'Esa clave no parece válida (empieza por «AIza»).'; return; }
+      try { await cloud.admin.setYoutubeKey(k); toast('Clave guardada en el servidor'); admin(); } catch (e) { ytMsg.textContent = e.message; }
+    };
+    $('#ytDel')?.addEventListener('click', async () => { if (await confirmBox('¿Quitar la clave?', 'Los usuarios volverán a escuchar vistas previas (las canciones ya encontradas seguirán sonando completas).', 'Quitar')) { await cloud.admin.setYoutubeKey(''); admin(); } });
+    $('#ytTest').onclick = async () => {
+      ytMsg.textContent = 'Probando…'; store.del('ytmap');
+      const r = await cloud.resolve({ id: 'dz:3135553', title: 'One More Time', artist: 'Daft Punk', dur: 320 });
+      ytMsg.textContent = r.videoId ? `✔ Funciona: encontrado el vídeo ${r.videoId}` : `✕ ${({ not_configured: 'No hay clave configurada.', quota: 'Cuota de YouTube agotada por hoy.', youtube: 'YouTube rechazó la clave: revisa que la API esté activada.', not_found: 'No se encontró la canción.' })[r.error] || r.message || r.error}`;
+    };
+    $('#annSave').onclick = async () => {
+      try { await cloud.admin.setAnnouncement({ text: $('#annText').value.trim(), tone: $('#annTone').value, active: $('#annOn').checked && !!$('#annText').value.trim() }); toast('Anuncio actualizado'); } catch (e) { toast(e.message); }
+    };
+  } catch (e) { if (!stale(s)) view().innerHTML = errorState(e.message); }
+}
+void fmt; void hrefOf;
