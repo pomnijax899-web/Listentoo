@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Listentoo</title>
-<meta name="description" content="Listentoo: escucha música online, crea playlists y llévala a cualquier dispositivo.">
-<meta name="theme-color" content="#0b0b12">
+<meta name="description" content="Listentoo: millones de canciones, artistas y álbumes. Crea playlists, sigue a tus artistas y escucha en cualquier dispositivo.">
+<meta name="theme-color" content="#08080c">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
@@ -13,77 +13,141 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Listentoo">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://api.deezer.com">
+<link rel="preconnect" href="https://cdn-images.dzcdn.net" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <div id="app">
+  <!-- ============ SIDEBAR (desktop) ============ -->
   <aside id="sidebar">
-    <div class="brand"><img src="icons/icon.svg" alt="" width="32" height="32"><span>Listentoo</span></div>
-    <nav>
-      <a href="#/home" data-nav="home"><svg viewBox="0 0 24 24"><path d="M12 3 3 10v11h6v-7h6v7h6V10z"/></svg><span>Inicio</span></a>
-      <a href="#/search" data-nav="search"><svg viewBox="0 0 24 24"><path d="M10 2a8 8 0 1 0 5 14.2l5.4 5.4 1.4-1.4-5.4-5.4A8 8 0 0 0 10 2zm0 2a6 6 0 1 1 0 12 6 6 0 0 1 0-12z"/></svg><span>Buscar</span></a>
-      <a href="#/library" data-nav="library"><svg viewBox="0 0 24 24"><path d="M4 3h2v18H4zm5 0h2v18H9zm5.6.4 1.9-.5 4.5 17.2-1.9.5z"/></svg><span>Biblioteca</span></a>
-    </nav>
-    <div class="side-section">
-      <div class="side-head"><span>Tus playlists</span><button id="newPlaylistBtn" class="icon-btn" title="Crear playlist" aria-label="Crear playlist">＋</button></div>
-      <div id="sidePlaylists"></div>
+    <div class="panel nav-panel">
+      <a class="brand" href="#/home"><img src="icons/icon.svg" alt="" width="30" height="30"><span>Listentoo</span></a>
+      <nav>
+        <a href="#/home" data-nav="home"><svg viewBox="0 0 24 24"><path d="M12 2.8 2 10.5V22h7v-7h6v7h7V10.5z"/></svg><span>Inicio</span></a>
+        <a href="#/search" data-nav="search"><svg viewBox="0 0 24 24"><path d="M10.5 2a8.5 8.5 0 0 1 6.75 13.66l4.55 4.55-1.6 1.6-4.55-4.55A8.5 8.5 0 1 1 10.5 2zm0 2.2a6.3 6.3 0 1 0 0 12.6 6.3 6.3 0 0 0 0-12.6z"/></svg><span>Buscar</span></a>
+      </nav>
     </div>
-    <button id="installBtn" class="install-btn" hidden>⬇ Instalar app</button>
+    <div class="panel lib-panel">
+      <div class="lib-top">
+        <a href="#/library" data-nav="library" class="lib-title"><svg viewBox="0 0 24 24"><path d="M3 22V2h2.2v20zm5 0V2h2.2v20zm5.3-.3L18 1.6l2.1.5-4.7 20.1z"/></svg><span>Tu biblioteca</span></a>
+        <button class="iconbtn" id="sideNew" title="Crear playlist" aria-label="Crear playlist"><svg viewBox="0 0 24 24"><path d="M11 4h2v7h7v2h-7v7h-2v-7H4v-2h7z"/></svg></button>
+      </div>
+      <div class="chips sm" id="sideFilters"><button class="chip" data-sf="playlists">Playlists</button><button class="chip" data-sf="artists">Artistas</button><button class="chip" data-sf="albums">Álbumes</button></div>
+      <div id="sideList" class="side-list"></div>
+    </div>
   </aside>
 
-  <main id="main" tabindex="-1"><div id="view"></div></main>
-
-  <div id="playerBar">
-    <div class="pb-track" id="pbTrack">
-      <img id="pbCover" alt="" src="icons/cover.svg">
-      <div class="pb-meta"><div id="pbTitle" class="ellipsis">Nada sonando</div><div id="pbArtist" class="ellipsis muted">—</div></div>
-      <button id="pbLike" class="icon-btn like" aria-label="Me gusta">♡</button>
-    </div>
-    <div class="pb-center">
-      <div class="controls">
-        <button id="btnShuffle" class="icon-btn" title="Aleatorio" aria-label="Aleatorio"><svg viewBox="0 0 24 24"><path d="M17 3h4v4l-1.5-1.5-4 4-1.4-1.4 4-4zM3 6h4.5l9 12H21v2h-5.5l-9-12H3zm11.1 7.6 1.4 1.4-4 4H21v2h-9.5l-1.5-1.5z" transform="scale(.9) translate(1 1)"/></svg></button>
-        <button id="btnPrev" class="icon-btn" title="Anterior" aria-label="Anterior"><svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zm3 7 10-7v14z"/></svg></button>
-        <button id="btnPlay" class="play-btn" title="Reproducir/Pausar" aria-label="Reproducir"><svg id="icoPlay" viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></svg><svg id="icoPause" viewBox="0 0 24 24" hidden><path d="M6 4h4v16H6zm8 0h4v16h-4z"/></svg></button>
-        <button id="btnNext" class="icon-btn" title="Siguiente" aria-label="Siguiente"><svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM5 5l10 7L5 19z"/></svg></button>
-        <button id="btnRepeat" class="icon-btn" title="Repetir" aria-label="Repetir"><svg viewBox="0 0 24 24"><path d="M7 7h10v3l4-4-4-4v3H5v6h2zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2z"/></svg><i id="repeatOne" hidden>1</i></button>
+  <!-- ============ MAIN ============ -->
+  <main id="main" tabindex="-1">
+    <header id="topbar">
+      <div class="tb-left">
+        <button class="navbtn" id="back" aria-label="Atrás"><svg viewBox="0 0 24 24"><path d="M15.5 4.5 8 12l7.5 7.5-1.6 1.6L4.8 12l9.1-9.1z"/></svg></button>
+        <button class="navbtn" id="fwd" aria-label="Adelante"><svg viewBox="0 0 24 24"><path d="M8.5 4.5 16 12l-7.5 7.5 1.6 1.6 9.1-9.1-9.1-9.1z"/></svg></button>
+        <div class="searchbar" id="searchbar">
+          <svg viewBox="0 0 24 24"><path d="M10.5 2a8.5 8.5 0 0 1 6.75 13.66l4.55 4.55-1.6 1.6-4.55-4.55A8.5 8.5 0 1 1 10.5 2zm0 2.2a6.3 6.3 0 1 0 0 12.6 6.3 6.3 0 0 0 0-12.6z"/></svg>
+          <input id="searchInput" type="search" placeholder="¿Qué quieres escuchar?" autocomplete="off" enterkeyhint="search" aria-label="Buscar">
+          <button id="searchClear" class="iconbtn sm" aria-label="Borrar búsqueda" hidden>✕</button>
+        </div>
+        <div class="tb-title" id="tbTitle"></div>
       </div>
-      <div class="seek"><span id="tCur">0:00</span><input id="seek" type="range" min="0" max="1000" value="0" aria-label="Progreso"><span id="tDur">0:00</span></div>
-    </div>
-    <div class="pb-right">
-      <button id="btnQueue" class="icon-btn" title="Cola" aria-label="Cola"><svg viewBox="0 0 24 24"><path d="M3 5h14v2H3zm0 6h14v2H3zm0 6h9v2H3zm13-1v-2h2v2h2v2h-2v2h-2v-2h-2v-2z"/></svg></button>
-      <button id="btnMute" class="icon-btn" title="Silenciar" aria-label="Volumen"><svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 4V5L7 9zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4z"/></svg></button>
-      <input id="volume" type="range" min="0" max="100" value="80" aria-label="Volumen">
-      <button id="btnExpand" class="icon-btn" title="Pantalla completa" aria-label="Ampliar reproductor"><svg viewBox="0 0 24 24"><path d="M4 4h6v2H6v4H4zm10 0h6v6h-2V6h-4zM4 14h2v4h4v2H4zm14 0h2v6h-6v-2h4z"/></svg></button>
-    </div>
-  </div>
+      <div class="tb-right">
+        <button class="pill install" id="installBtn" hidden>⬇ Instalar app</button>
+        <button class="avatar" id="settingsBtn" aria-label="Ajustes" title="Ajustes"><svg viewBox="0 0 24 24"><path d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.6 7.6 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.6 7.6 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1c.5.4 1.1.7 1.7 1l.4 2.6h4l.4-2.6c.6-.3 1.2-.6 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg></button>
+      </div>
+    </header>
+    <div id="view" class="view"></div>
+  </main>
 
+  <!-- ============ NOW PLAYING SIDE PANEL (wide screens) ============ -->
+  <aside id="npPanel" hidden>
+    <div class="npp-head"><span class="ellipsis" id="nppCtx">Sonando</span><button class="iconbtn" id="nppClose" aria-label="Cerrar panel">✕</button></div>
+    <div class="npp-scroll">
+      <img id="nppCover" class="npp-cover" alt="" src="icons/cover.svg">
+      <div class="npp-meta"><div><div class="npp-title ellipsis" id="nppTitle"></div><div class="npp-artist ellipsis" id="nppArtist"></div></div><button class="likebtn" id="nppLike" aria-label="Me gusta"></button></div>
+      <div class="npp-card lyrics-card" id="nppLyricsCard"><div class="npp-card-h"><b>Letra</b><button class="linkbtn" id="nppLyricsOpen">Mostrar letra</button></div><div class="lyrics mini" data-lyrics></div></div>
+      <div class="npp-card artist-card" id="nppArtistCard"></div>
+      <div class="npp-card" id="nppNext"></div>
+    </div>
+  </aside>
+
+  <!-- ============ PLAYER BAR ============ -->
+  <footer id="player">
+    <div class="pl-progress" id="miniProgress"><i></i></div>
+    <div class="pl-left" id="plLeft">
+      <div class="pl-cover-wrap"><img id="plCover" alt="" src="icons/cover.svg"><button class="cover-expand" id="plExpandCover" aria-label="Ampliar">⌃</button></div>
+      <div class="pl-meta"><a id="plTitle" class="ellipsis" href="#/home">Listentoo</a><div id="plArtist" class="ellipsis muted">Elige algo para escuchar</div></div>
+      <button class="likebtn" id="plLike" aria-label="Me gusta"></button>
+    </div>
+    <div class="pl-center">
+      <div class="controls">
+        <button class="iconbtn" id="shuffleBtn" title="Aleatorio (S)" aria-label="Aleatorio"><svg viewBox="0 0 24 24"><path d="M16 3h5v5l-1.8-1.8-3.6 3.6-1.4-1.4 3.6-3.6zM3 6h4.2c1.6 0 3 .8 3.9 2.1l4.3 6.6c.5.8 1.4 1.3 2.4 1.3H19l-1.6-1.6L18.8 13 22 16.9l-3.2 3.9-1.4-1.4L19 18h-1.2c-1.6 0-3-.8-3.9-2.1l-4.3-6.6C9.1 8.5 8.2 8 7.2 8H3zm0 10h4.2c.8 0 1.5-.3 2-.9l1.2 1.7c-.9.8-2 1.2-3.2 1.2H3z"/></svg></button>
+        <button class="iconbtn" id="prevBtn" title="Anterior" aria-label="Anterior"><svg viewBox="0 0 24 24"><path d="M6 4h2.2v16H6zm3.5 8L20 4.5v15z"/></svg></button>
+        <button class="playbtn" id="playBtn" title="Reproducir (Espacio)" aria-label="Reproducir"></button>
+        <button class="iconbtn" id="nextBtn" title="Siguiente" aria-label="Siguiente"><svg viewBox="0 0 24 24"><path d="M15.8 4H18v16h-2.2zM4 4.5 14.5 12 4 19.5z"/></svg></button>
+        <button class="iconbtn" id="repeatBtn" title="Repetir (R)" aria-label="Repetir"></button>
+      </div>
+      <div class="seekrow"><span id="tCur">0:00</span><div class="slider" id="seek" role="slider" aria-label="Progreso" tabindex="0"><div class="track"><div class="fill"></div></div><div class="knob"></div></div><span id="tDur">0:00</span></div>
+    </div>
+    <div class="pl-right">
+      <button class="mode-badge" id="modeBadge" hidden></button>
+      <button class="iconbtn" id="npViewBtn" title="Vista Reproduciendo" aria-label="Vista Reproduciendo"><svg viewBox="0 0 24 24"><path d="M4 3h16a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm10 2v14h5V5z"/></svg></button>
+      <button class="iconbtn" id="lyricsBtn" title="Letra" aria-label="Letra"><svg viewBox="0 0 24 24"><path d="M13.4 2.6a5.3 5.3 0 0 1 7.5 7.5 5.3 5.3 0 0 1-6.9.5L5.3 21.3l-2.6-2.6 10.7-8.7a5.3 5.3 0 0 1 0-7.4zM15 4.2a3 3 0 1 0 4.3 4.3A3 3 0 0 0 15 4.2z"/></svg></button>
+      <button class="iconbtn" id="queueBtn" title="Cola" aria-label="Cola"><svg viewBox="0 0 24 24"><path d="M3 4h12v2H3zm0 5h12v2H3zm0 5h7v2H3zm10.5 0 7 4-7 4z"/></svg></button>
+      <div class="vol"><button class="iconbtn" id="muteBtn" aria-label="Silenciar"></button><div class="slider" id="volume" role="slider" aria-label="Volumen" tabindex="0"><div class="track"><div class="fill"></div></div><div class="knob"></div></div></div>
+      <button class="iconbtn" id="fullBtn" title="Pantalla completa" aria-label="Pantalla completa"><svg viewBox="0 0 24 24"><path d="M3 3h7v2.2H5.2V10H3zm11 0h7v7h-2.2V5.2H14zM3 14h2.2v4.8H10V21H3zm15.8 0H21v7h-7v-2.2h4.8z"/></svg></button>
+      <button class="playbtn mini" id="miniPlay" aria-label="Reproducir"></button>
+    </div>
+  </footer>
+
+  <!-- ============ TAB BAR (mobile) ============ -->
   <nav id="tabbar">
-    <a href="#/home" data-nav="home"><svg viewBox="0 0 24 24"><path d="M12 3 3 10v11h6v-7h6v7h6V10z"/></svg><span>Inicio</span></a>
-    <a href="#/search" data-nav="search"><svg viewBox="0 0 24 24"><path d="M10 2a8 8 0 1 0 5 14.2l5.4 5.4 1.4-1.4-5.4-5.4A8 8 0 0 0 10 2zm0 2a6 6 0 1 1 0 12 6 6 0 0 1 0-12z"/></svg><span>Buscar</span></a>
-    <a href="#/library" data-nav="library"><svg viewBox="0 0 24 24"><path d="M4 3h2v18H4zm5 0h2v18H9zm5.6.4 1.9-.5 4.5 17.2-1.9.5z"/></svg><span>Biblioteca</span></a>
+    <a href="#/home" data-nav="home"><svg viewBox="0 0 24 24"><path d="M12 2.8 2 10.5V22h7v-7h6v7h7V10.5z"/></svg><span>Inicio</span></a>
+    <a href="#/search" data-nav="search"><svg viewBox="0 0 24 24"><path d="M10.5 2a8.5 8.5 0 0 1 6.75 13.66l4.55 4.55-1.6 1.6-4.55-4.55A8.5 8.5 0 1 1 10.5 2zm0 2.2a6.3 6.3 0 1 0 0 12.6 6.3 6.3 0 0 0 0-12.6z"/></svg><span>Buscar</span></a>
+    <a href="#/library" data-nav="library"><svg viewBox="0 0 24 24"><path d="M3 22V2h2.2v20zm5 0V2h2.2v20zm5.3-.3L18 1.6l2.1.5-4.7 20.1z"/></svg><span>Tu biblioteca</span></a>
   </nav>
 </div>
 
-<section id="npFull" hidden aria-label="Reproduciendo ahora">
-  <button id="npClose" class="icon-btn np-close" aria-label="Cerrar">⌄</button>
-  <img id="npCover" alt="" src="icons/cover.svg">
-  <div class="np-meta"><div id="npTitle" class="np-title"></div><div id="npArtist" class="muted"></div></div>
-  <div class="seek"><span id="npCur">0:00</span><input id="npSeek" type="range" min="0" max="1000" value="0" aria-label="Progreso"><span id="npDur">0:00</span></div>
-  <div class="controls big">
-    <button id="npShuffle" class="icon-btn" aria-label="Aleatorio"><svg viewBox="0 0 24 24"><path d="M17 3h4v4l-1.5-1.5-4 4-1.4-1.4 4-4zM3 6h4.5l9 12H21v2h-5.5l-9-12H3zm11.1 7.6 1.4 1.4-4 4H21v2h-9.5l-1.5-1.5z" transform="scale(.9) translate(1 1)"/></svg></button>
-    <button id="npPrev" class="icon-btn" aria-label="Anterior"><svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zm3 7 10-7v14z"/></svg></button>
-    <button id="npPlay" class="play-btn" aria-label="Reproducir"><svg id="npIcoPlay" viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></svg><svg id="npIcoPause" viewBox="0 0 24 24" hidden><path d="M6 4h4v16H6zm8 0h4v16h-4z"/></svg></button>
-    <button id="npNext" class="icon-btn" aria-label="Siguiente"><svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM5 5l10 7L5 19z"/></svg></button>
-    <button id="npRepeat" class="icon-btn" aria-label="Repetir"><svg viewBox="0 0 24 24"><path d="M7 7h10v3l4-4-4-4v3H5v6h2zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2z"/></svg></button>
+<!-- ============ FULL-SCREEN PLAYER ============ -->
+<section id="np" aria-label="Reproduciendo ahora" hidden>
+  <div class="np-bg"></div>
+  <div class="np-inner">
+    <div class="np-head">
+      <button class="iconbtn" id="npClose" aria-label="Cerrar"><svg viewBox="0 0 24 24"><path d="m4.5 8.5 7.5 7.5 7.5-7.5 1.6 1.6-9.1 9.1-9.1-9.1z"/></svg></button>
+      <div class="np-ctx"><small>Reproduciendo desde</small><a id="npCtx" class="ellipsis" href="#/home"></a></div>
+      <button class="iconbtn" id="npMore" aria-label="Más"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button>
+    </div>
+    <div class="np-main">
+      <div class="np-art"><img id="npCover" alt="" src="icons/cover.svg"><div class="np-yt-slot" id="npYtSlot"></div></div>
+      <div class="np-side">
+        <div class="np-meta"><div class="np-titles"><div id="npTitle" class="np-title ellipsis"></div><a id="npArtist" class="np-artist ellipsis" href="#/home"></a></div><button class="likebtn lg" id="npLike" aria-label="Me gusta"></button></div>
+        <div class="seekrow np-seek"><div class="slider lg" id="npSeek" role="slider" aria-label="Progreso" tabindex="0"><div class="track"><div class="fill"></div></div><div class="knob"></div></div><div class="np-times"><span id="npCur">0:00</span><span id="npMode" class="np-mode"></span><span id="npDur">0:00</span></div></div>
+        <div class="controls np-controls">
+          <button class="iconbtn" id="npShuffle" aria-label="Aleatorio"></button>
+          <button class="iconbtn lg" id="npPrev" aria-label="Anterior"><svg viewBox="0 0 24 24"><path d="M6 4h2.2v16H6zm3.5 8L20 4.5v15z"/></svg></button>
+          <button class="playbtn xl" id="npPlay" aria-label="Reproducir"></button>
+          <button class="iconbtn lg" id="npNext" aria-label="Siguiente"><svg viewBox="0 0 24 24"><path d="M15.8 4H18v16h-2.2zM4 4.5 14.5 12 4 19.5z"/></svg></button>
+          <button class="iconbtn" id="npRepeat" aria-label="Repetir"></button>
+        </div>
+        <div class="np-tools">
+          <button class="iconbtn" id="npSleep" aria-label="Temporizador" title="Temporizador"><svg viewBox="0 0 24 24"><path d="M12.3 2a10 10 0 1 0 9.7 12.4A8 8 0 0 1 12.3 2z"/></svg></button>
+          <button class="iconbtn" id="npShare" aria-label="Compartir" title="Compartir"><svg viewBox="0 0 24 24"><path d="M12 2.5 17 7.5l-1.5 1.5L13 6.5V15h-2V6.5L8.5 9 7 7.5zM4 13h2v6h12v-6h2v8H4z"/></svg></button>
+          <button class="iconbtn" id="npQueue" aria-label="Cola" title="Cola"><svg viewBox="0 0 24 24"><path d="M3 4h12v2H3zm0 5h12v2H3zm0 5h7v2H3zm10.5 0 7 4-7 4z"/></svg></button>
+        </div>
+        <div class="np-lyrics-card"><div class="npp-card-h"><b>Letra</b></div><div class="lyrics" data-lyrics></div></div>
+      </div>
+    </div>
   </div>
-  <div class="np-actions"><button id="npLike" class="icon-btn like" aria-label="Me gusta">♡</button><button id="npQueue" class="icon-btn" aria-label="Cola">☰ Cola</button><button id="npMore" class="icon-btn" aria-label="Más">⋯</button></div>
 </section>
 
+<div id="ytDock" hidden><div class="yt-head"><span>YouTube · reproducción completa</span></div><div id="ytFrame"><div id="ytHost"></div></div></div>
 <div id="menu" class="menu" hidden></div>
 <div id="modal" class="modal" hidden></div>
-<div id="toast" class="toast" hidden></div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
 <input id="filePicker" type="file" accept="audio/*" multiple hidden>
-
-<script src="app.js"></script>
+<script type="module" src="js/main.js"></script>
 </body>
 </html>
