@@ -1,11 +1,11 @@
 // Page views for the Orbit UI. Each view writes into #view.
 import { $, $$, esc, fmt, fmtLong, fmtNum, plural, imageColor, rgb, debounce, store, toast } from './util.js';
-import { deezer, audius, MOODS } from './api.js';
+import { deezer, audius, MOODS, radio, RADIO_TAGS, jamendo } from './api.js';
 import { lib } from './library.js';
 import { player } from './player.js';
 import { cloud } from './cloud.js';
 import { THEMES, applyTheme, resolveTheme } from './themes.js';
-import { icons, img, trackList, card, shelf, mosaic, skeleton, skeletonShelves, errorState, registerList, prompt, confirmBox, share, showMenu, modal, trackCards, avatar, hrefOf } from './ui.js';
+import { icons, img, trackList, card, shelf, mosaic, skeleton, skeletonShelves, errorState, registerList, prompt, confirmBox, share, showMenu, modal, trackCards, avatar, hrefOf, stationCards } from './ui.js';
 
 const view = () => $('#view');
 let seqN = 0;
@@ -63,15 +63,17 @@ export async function home() {
     </section>
     ${ann ? `<div class="announce ${esc(ann.tone || 'info')}"><span class="dot"></span><p>${esc(ann.text)}</p></div>` : ''}
     <div class="moods">${MOODS.map(m => `<a class="mood" href="#/mood/${m.id}" style="--m1:${m.c[0]};--m2:${m.c[1]}"><span>${m.icon}</span>${esc(m.name)}</a>`).join('')}</div>
-    ${cloud.signedIn ? '' : `<a class="cta" href="#/cuenta"><div><b>Crea tu cuenta gratis</b><p>Canciones completas, tu biblioteca en todos tus dispositivos y playlists para compartir.</p></div><span class="pill primary">Empezar</span></a>`}
+    ${cloud.signedIn ? '' : `<a class="cta" href="#/cuenta"><div><b>Crea tu cuenta gratis</b><p>Tu biblioteca y tus emisoras en todos tus dispositivos, y playlists para compartir.</p></div><span class="pill primary">Empezar</span></a>`}
     <div class="bento" id="bento">
       <a class="tile t-top" href="#/top"><div class="t-collage" id="topCollage">${Array.from({ length: 6 }, () => '<i class="sk"></i>').join('')}</div><div class="t-body"><div class="eyebrow">Lista del día</div><h2>Top 50 Global</h2><p id="topSub" class="muted">Lo más escuchado ahora mismo</p></div><button class="fab show" id="topPlay" aria-label="Reproducir Top 50">${icons.play}</button></a>
       <button class="tile t-mix" id="mixTile" style="--img:url('${esc(fav?.[1].cover || '')}')"><div class="t-glow"></div><div class="t-body"><div class="eyebrow">${fav ? 'Tu mezcla' : 'Descubre'}</div><h2>${fav ? `${esc(fav[1].name)} y más` : 'Algo nuevo para ti'}</h2><p class="muted">${fav ? 'Una radio infinita a partir de lo que más escuchas' : 'Una radio sorpresa con artistas en tendencia'}</p></div><span class="fab show">${icons.radio}</span></button>
-      <a class="tile t-liked" href="#/megusta"><div class="liked-art">${icons.heartOn}</div><div><h3>Me gusta</h3><p class="muted">${plural(lib.liked.length, 'canción', 'canciones')}</p></div></a>
+      <a class="tile t-liked" href="#/megusta"><div class="liked-art">${icons.heartOn}</div><div><h3>Me gusta</h3><p class="muted">${plural(lib.songs.length, 'canción', 'canciones')}</p></div></a>
       <div class="tile t-recent"><div class="eyebrow">Vuelve a escuchar</div><div id="recentMini">${lib.recent.slice(0, 4).map((t, i) => `<button class="mini-row" data-ri="${i}">${img(t.cover)}<span class="ellipsis"><b>${esc(t.title)}</b><small>${esc(t.artist)}</small></span></button>`).join('') || '<p class="muted small">Lo que escuches aparecerá aquí.</p>'}</div></div>
     </div>
     ${lib.recent.length > 4 ? `<section class="shelf"><div class="shelf-head"><h2>Escuchado recientemente</h2></div>${trackCards(lib.recent.slice(0, 16), 'Escuchado recientemente')}</section>` : ''}
+    <div id="homeRadio"></div>
     <div id="homeMore">${skeletonShelves(3)}</div>`;
+  homeRadio(s);
   const recentK = registerList(lib.recent, { label: 'Escuchado recientemente' });
   $('#recentMini').onclick = e => { const b = e.target.closest('[data-ri]'); if (b) player.playList(lib.recent, +b.dataset.ri, { label: 'Escuchado recientemente' }); };
   void recentK;
@@ -90,7 +92,8 @@ export async function home() {
     $('#topSub').textContent = tracks.slice(0, 3).map(t => t.artist).join(', ') + ' y más';
     $('#topPlay').onclick = e => { e.preventDefault(); e.stopPropagation(); player.playList(tracks, 0, { label: 'Top 50 Global', href: '#/top' }); };
     const followed = lib.artists.slice(0, 2);
-    $('#homeMore').innerHTML = `${shelf('Álbumes del momento', albums)}${shelf('Artistas en órbita', artists)}${shelf('Playlists destacadas', playlists)}<div id="homeFollow"></div><div id="homeIndie"></div>`;
+    $('#homeMore').innerHTML = `${shelf('Álbumes del momento', albums)}${shelf('Artistas en órbita', artists)}${shelf('Playlists destacadas', playlists)}<div id="homeFollow"></div><div id="homeIndie"></div><div id="homeFree"></div>`;
+    if (jamendo.enabled) jamendo.popular().then(jm => { if (!stale(s) && jm.length) $('#homeFree').innerHTML = `<section class="shelf"><div class="shelf-head"><h2>Música libre · siempre completa</h2></div>${trackCards(jm.slice(0, 16), 'Música libre')}</section>`; }).catch(() => {});
     const per = await Promise.allSettled(followed.map(a => deezer.artistRelated(a.id)));
     if (stale(s)) return;
     $('#homeFollow').innerHTML = per.map((r, i) => r.value?.length ? shelf(`Porque sigues a ${followed[i].name}`, r.value) : '').join('');
@@ -119,23 +122,24 @@ export async function explore(q = '') {
     return;
   }
   view().innerHTML = `<div class="page-search"><input id="pageSearch" type="search" value="${esc(q)}" autocomplete="off" enterkeyhint="search"></div>
-    <div class="chips" id="sfilters">${[['all', 'Todo'], ['tracks', 'Canciones'], ['artists', 'Artistas'], ['albums', 'Álbumes'], ['playlists', 'Playlists'], ['indie', 'Independiente']].map(([k, l]) => `<button class="chip${k === lastFilter ? ' on' : ''}" data-f="${k}">${l}</button>`).join('')}</div><div id="sres">${skeleton(6)}</div>`;
+    <div class="chips" id="sfilters">${[['all', 'Todo'], ['tracks', 'Canciones'], ['artists', 'Artistas'], ['albums', 'Álbumes'], ['playlists', 'Playlists'], ['radio', 'Radio'], ['indie', 'Completas']].map(([k, l]) => `<button class="chip${k === lastFilter ? ' on' : ''}" data-f="${k}">${l}</button>`).join('')}</div><div id="sres">${skeleton(6)}</div>`;
   bindPageSearch();
-  const [tr, ar, al, pl, au] = await Promise.allSettled([deezer.search(q, 40), deezer.searchArtists(q, 18), deezer.searchAlbums(q, 18), deezer.searchPlaylists(q, 18), audius.search(q)]);
+  const [tr, ar, al, pl, au, rd, jm] = await Promise.allSettled([deezer.search(q, 40), deezer.searchArtists(q, 18), deezer.searchAlbums(q, 18), deezer.searchPlaylists(q, 18), audius.search(q), radio.search(q, 18), jamendo.search(q)]);
   if (stale(s)) return;
-  const T = tr.value || [], A = ar.value || [], AL = al.value || [], PL = pl.value || [], AU = au.value || [];
+  const T = tr.value || [], A = ar.value || [], AL = al.value || [], PL = pl.value || [], RD = rd.value || [], AU = [...(jm.value || []), ...(au.value || [])];
   const mine = [...lib.local, ...lib.liked].filter((t, i, a) => a.findIndex(x => x.id === t.id) === i).filter(t => `${t.title} ${t.artist}`.toLowerCase().includes(q.toLowerCase()));
   const render = f => {
     lastFilter = f;
     $$('#sfilters .chip').forEach(c => c.classList.toggle('on', c.dataset.f === f));
     const box = $('#sres');
-    if (!T.length && !A.length && !AL.length && !AU.length) { box.innerHTML = tr.status === 'rejected' ? errorState() : `<div class="empty"><h3>Nada para «${esc(q)}»</h3><p>Prueba con otras palabras o revisa la ortografía.</p></div>`; return; }
+    if (!T.length && !A.length && !AL.length && !AU.length && !RD.length) { box.innerHTML = tr.status === 'rejected' ? errorState() : `<div class="empty"><h3>Nada para «${esc(q)}»</h3><p>Prueba con otras palabras o revisa la ortografía.</p></div>`; return; }
     const lbl = `Resultados de «${q}»`;
     if (f === 'tracks') box.innerHTML = trackList(T, { label: lbl });
     else if (f === 'artists') box.innerHTML = `<div class="cgrid bubbles">${A.map(a => card(a)).join('')}</div>`;
     else if (f === 'albums') box.innerHTML = `<div class="cgrid">${AL.map(a => card(a)).join('')}</div>`;
     else if (f === 'playlists') box.innerHTML = `<div class="cgrid">${PL.map(a => card(a)).join('')}</div>`;
-    else if (f === 'indie') box.innerHTML = AU.length ? trackList(AU, { label: `Independiente: «${q}»` }) : '<div class="empty"><p>Sin resultados independientes.</p></div>';
+    else if (f === 'indie') box.innerHTML = AU.length ? trackList(AU, { label: `Completas: «${q}»` }) : '<div class="empty"><p>No hay canciones completas para esta búsqueda. Prueba la radio en directo.</p></div>';
+    else if (f === 'radio') box.innerHTML = RD.length ? stationCards(RD, `Radio: «${q}»`, { wrap: true }) : '<div class="empty"><p>No hay emisoras con ese nombre.</p></div>';
     else {
       const exact = A.find(a => a.name.toLowerCase() === q.toLowerCase());
       const topIsArtist = !!exact || (!T.length && A.length);
@@ -148,7 +152,8 @@ export async function explore(q = '') {
       </div>
       ${mine.length ? `<section class="shelf"><h2>En tu biblioteca</h2>${trackList(mine.slice(0, 6), { label: 'Tu biblioteca' })}</section>` : ''}
       ${shelf('Artistas', A)}${shelf('Álbumes', AL)}${shelf('Playlists', PL)}
-      ${AU.length ? `<section class="shelf"><h2>Independiente · siempre completa</h2>${trackList(AU.slice(0, 6), { label: `Independiente: «${q}»` })}</section>` : ''}`;
+      ${AU.length ? `<section class="shelf"><h2>Canciones completas</h2>${trackList(AU.slice(0, 6), { label: `Completas: «${q}»` })}</section>` : ''}
+      ${RD.length ? `<section class="shelf"><div class="shelf-head"><h2>Emisoras</h2></div>${stationCards(RD, `Radio: «${q}»`)}</section>` : ''}`;
       box.querySelector('[data-act="playtop"]')?.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); player.playList(T, 0, { label: lbl }); });
     }
   };
@@ -174,8 +179,9 @@ export async function mood(id) {
     const label = `Mood · ${m.name}`, href = `#/mood/${id}`;
     const k = registerList(tracks, { label, href });
     view().innerHTML = `<header class="poster mood-poster" style="--m1:${m.c[0]};--m2:${m.c[1]};--c:${rgb(c)}"><div class="poster-art"><div class="mood-orb"><span>${m.icon}</span></div></div><div class="poster-meta"><div class="eyebrow">Estado de ánimo</div><h1 class="title-xl">${esc(m.name)}</h1><p class="byline">${plural(pls.length, 'playlist', 'playlists')} · ${plural(tracks.length, 'canción', 'canciones')}</p></div></header>
-      <div class="page-body">${actions({ listKey: k })}${shelf('Playlists para este momento', pls)}<h2>Canciones</h2>${trackList(tracks, { label, href })}</div>`;
+      <div class="page-body">${actions({ listKey: k })}<div id="moodRadio"></div>${shelf('Playlists para este momento', pls)}<h2>Canciones</h2>${trackList(tracks, { label, href })}</div>`;
     bindActions(view(), { tracks, label, href });
+    radio.byTag(m.tag, 16).then(st => { if (!stale(s) && st.length) $('#moodRadio').innerHTML = `<section class="shelf"><div class="shelf-head"><h2>Radio en directo para este momento</h2><a class="more" href="#/radio/${encodeURIComponent(m.tag)}">Ver todo</a></div>${stationCards(st, `Radio · ${m.name}`)}</section>`; }).catch(() => {});
   } catch { if (!stale(s)) view().innerHTML = errorState(); }
 }
 
@@ -351,10 +357,11 @@ export async function shared(id) {
 export function liked() {
   begin(); setTint([110, 70, 240]);
   const label = 'Me gusta', href = '#/megusta';
-  const k = registerList(lib.liked, { label, href });
-  view().innerHTML = poster({ c: [110, 70, 240], art: `<div class="cover-art liked-art">${icons.heartOn}</div>`, kind: 'Playlist', title: 'Me gusta', meta: `<b>${esc(cloud.profile?.display_name || 'Tú')}</b> · ${plural(lib.liked.length, 'canción', 'canciones')}` })
-    + `<div class="page-body">${actions({ listKey: k })}${lib.liked.length ? trackList(lib.liked, { label, href, added: true }) : `<div class="empty"><div class="empty-ico">${icons.heart}</div><h3>Aquí vivirán tus favoritas</h3><p>Toca el corazón de cualquier canción para guardarla.</p><a class="pill primary" href="#/explorar">Explorar música</a></div>`}</div>`;
-  bindActions(view(), { tracks: lib.liked, label, href });
+  const songs = lib.songs;
+  const k = registerList(songs, { label, href });
+  view().innerHTML = poster({ c: [110, 70, 240], art: `<div class="cover-art liked-art">${icons.heartOn}</div>`, kind: 'Playlist', title: 'Me gusta', meta: `<b>${esc(cloud.profile?.display_name || 'Tú')}</b> · ${plural(songs.length, 'canción', 'canciones')}` })
+    + `<div class="page-body">${actions({ listKey: k })}${songs.length ? trackList(songs, { label, href, added: true }) : `<div class="empty"><div class="empty-ico">${icons.heart}</div><h3>Aquí vivirán tus favoritas</h3><p>Toca el corazón de cualquier canción para guardarla.</p><a class="pill primary" href="#/explorar">Explorar música</a></div>`}</div>`;
+  bindActions(view(), { tracks: songs, label, href });
 }
 
 /* ======================= BIBLIOTECA ======================= */
@@ -362,19 +369,21 @@ let libFilter = store.get('libFilter', 'all'), libSort = store.get('libSort', 'r
 export function library() {
   begin(); setTint([60, 50, 110]);
   const items = [
-    { kind: 'liked', id: 'liked', title: 'Me gusta', sub: plural(lib.liked.length, 'canción', 'canciones'), added: Infinity, pin: 1 },
+    { kind: 'liked', id: 'liked', title: 'Me gusta', sub: plural(lib.songs.length, 'canción', 'canciones'), added: Infinity, pin: 1 },
     ...lib.playlists.map(p => ({ ...p, kind: 'playlist', title: p.name, sub: `Playlist${p.isPublic ? ' pública' : ''} · ${p.tracks.length}`, added: p.created })),
     ...lib.dzplaylists.map(p => ({ ...p, kind: 'dzplaylist', sub: `Playlist · ${p.by}` })),
     ...lib.albums.map(a => ({ ...a, kind: 'album', sub: `Álbum · ${a.artist}` })),
     ...lib.artists.map(a => ({ ...a, kind: 'artist', title: a.name, sub: 'Artista' }))
   ];
-  const f = { all: () => true, playlists: i => ['liked', 'playlist', 'dzplaylist'].includes(i.kind), artists: i => i.kind === 'artist', albums: i => i.kind === 'album', files: () => false }[libFilter] || (() => true);
+  const f = { all: () => true, playlists: i => ['liked', 'playlist', 'dzplaylist'].includes(i.kind), artists: i => i.kind === 'artist', albums: i => i.kind === 'album', files: () => false, radio: () => false }[libFilter] || (() => true);
   const sorted = items.filter(f).sort((a, b) => (b.pin || 0) - (a.pin || 0) || (libSort === 'alpha' ? (a.title || '').localeCompare(b.title || '') : (b.added || 0) - (a.added || 0)));
   view().innerHTML = `<div class="lib-head"><h1>Tu biblioteca</h1><div class="lib-actions"><button class="pill primary" id="newPl">${icons.plus} Nueva playlist</button><button class="pill ghost" id="importBtn">Importar archivos</button></div></div>
     ${cloud.signedIn ? '' : `<a class="cta slim" href="#/cuenta"><div><b>Guárdalo todo en tu cuenta</b><p>Inicia sesión para sincronizar tu biblioteca entre dispositivos.</p></div><span class="pill primary">Entrar</span></a>`}
-    <div class="chips"><span class="chips-l">${[['all', 'Todo'], ['playlists', 'Playlists'], ['albums', 'Álbumes'], ['artists', 'Artistas'], ['files', 'Archivos']].map(([v, l]) => `<button class="chip${v === libFilter ? ' on' : ''}" data-lf="${v}">${l}</button>`).join('')}</span>
+    <div class="chips"><span class="chips-l">${[['all', 'Todo'], ['playlists', 'Playlists'], ['albums', 'Álbumes'], ['artists', 'Artistas'], ['radio', 'Radio'], ['files', 'Archivos']].map(([v, l]) => `<button class="chip${v === libFilter ? ' on' : ''}" data-lf="${v}">${l}</button>`).join('')}</span>
       <button class="chip ghost" id="libSort">${libSort === 'alpha' ? 'A-Z' : 'Recientes'} ⇅</button></div>
-    ${libFilter !== 'files' ? `<div class="cgrid lib-grid">${sorted.map(i => card(i, { sub: i.sub })).join('')}</div>` : ''}
+    ${(libFilter === 'all' || libFilter === 'radio') && lib.stations.length ? `<section class="shelf"><div class="shelf-head"><h2>Tus emisoras</h2><a class="more" href="#/radio">Más radio</a></div>${stationCards(lib.stations, 'Tus emisoras', { wrap: libFilter === 'radio' })}</section>` : ''}
+    ${libFilter === 'radio' && !lib.stations.length ? `<div class="empty"><h3>Aún no tienes emisoras</h3><p>Guarda tus favoritas con el corazón y aparecerán aquí.</p><a class="pill primary" href="#/radio">Descubrir radio</a></div>` : ''}
+    ${!['files', 'radio'].includes(libFilter) ? `<div class="cgrid lib-grid">${sorted.map(i => card(i, { sub: i.sub })).join('')}</div>` : ''}
     ${(libFilter === 'all' || libFilter === 'files') ? `<section class="shelf"><div class="shelf-head"><h2>Archivos de este dispositivo</h2></div>${lib.local.length ? trackList(lib.local, { label: 'Archivos locales', href: '#/biblioteca' }) : `<button class="dropzone" id="dropzone">${icons.music}<div><b>Suelta aquí tu música</b><br><span class="muted">MP3, M4A, FLAC, WAV, OGG… Suena completa y sin conexión.</span></div></button>`}</section>` : ''}`;
   $('#newPl').onclick = async () => { const n = await prompt('Nueva playlist', '', 'Crear'); if (n !== null) location.hash = '#/playlist/' + lib.createPlaylist(n).id; };
   $('#importBtn').onclick = () => $('#filePicker').click();
@@ -401,7 +410,7 @@ export function account(mode = 'entrar') {
   view().innerHTML = `<div class="auth">
     <div class="auth-art"><div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div>
       <div class="auth-copy"><img src="icons/icon.svg" alt="" width="56" height="56"><h1>Tu música,<br>en órbita.</h1>
-      <ul><li>Canciones completas dentro de la app</li><li>Tu biblioteca sincronizada en todos tus dispositivos</li><li>Playlists para compartir con un enlace</li><li>Temas, letras y mucho más</li></ul></div></div>
+      <ul><li>Miles de emisoras en directo y música completa</li><li>Tu biblioteca sincronizada en todos tus dispositivos</li><li>Playlists para compartir con un enlace</li><li>Temas, letras y mucho más</li></ul></div></div>
     <div class="auth-card">
       <div class="seg" role="tablist"><button data-m="entrar" class="${mode === 'entrar' ? 'on' : ''}">Entrar</button><button data-m="registro" class="${mode === 'registro' ? 'on' : ''}">Crear cuenta</button></div>
       <form id="authForm" novalidate>
@@ -463,7 +472,7 @@ export async function profile() {
   const pr = cloud.profile || {}, email = cloud.user.email;
   view().innerHTML = `<header class="profile-hero"><button class="avatar-xl" id="hueBtn" style="--h:${pr.avatar_hue ?? 275}" title="Cambiar color">${esc((pr.display_name || email).charAt(0).toUpperCase())}</button>
       <div><div class="eyebrow">Perfil${cloud.isAdmin ? ' · Administrador' : ''}</div><h1 class="title-xl">${esc(pr.display_name || email.split('@')[0])}</h1><p class="byline">${esc(email)}</p>
-      <div class="stats-row"><span><b>${lib.liked.length}</b> me gusta</span><span><b>${lib.playlists.length}</b> playlists</span><span><b>${lib.artists.length}</b> artistas</span><span id="playsCount"><b>…</b> escuchas</span></div></div></header>
+      <div class="stats-row"><span><b>${lib.songs.length}</b> me gusta</span><span><b>${lib.stations.length}</b> emisoras</span><span><b>${lib.playlists.length}</b> playlists</span><span><b>${lib.artists.length}</b> artistas</span><span id="playsCount"><b>…</b> escuchas</span></div></div></header>
     <div class="page-body">
       <section class="panel-grid">
         <div class="glass-card"><h3>Tus artistas del mes</h3><div id="topArtists" class="rank"><div class="sk sk-t"></div></div></div>
@@ -561,15 +570,19 @@ export async function admin() {
     const days = Array.from({ length: 14 }, (_, i) => { const d = new Date(Date.now() - (13 - i) * 864e5).toISOString().slice(0, 10); return { d, n: o.daily.find(x => x.day === d)?.n || 0 }; });
     const kpi = (v, l) => `<div class="kpi"><b>${fmtNum(v)}</b><span>${l}</span></div>`;
     $('#adm').innerHTML = `
-      <div class="kpis">${kpi(o.users, 'usuarios')}${kpi(o.users_7d, 'nuevos (7 días)')}${kpi(o.active_24h, 'activos hoy')}${kpi(o.plays_24h, 'escuchas hoy')}${kpi(o.plays, 'escuchas totales')}${kpi(o.playlists, 'playlists')}${kpi(o.matches, 'canciones completas en caché')}${kpi(o.lookups_today, 'búsquedas YouTube hoy')}</div>
+      <div class="kpis">${kpi(o.users, 'usuarios')}${kpi(o.users_7d, 'nuevos (7 días)')}${kpi(o.active_24h, 'activos hoy')}${kpi(o.plays_24h, 'escuchas hoy')}${kpi(o.plays, 'escuchas totales')}${kpi(o.playlists, 'playlists')}</div>
       <section class="panel-grid">
         <div class="glass-card wide"><h3>Escuchas · últimos 14 días</h3><div class="bars">${days.map(d => `<div class="bar" style="--v:${d.n / max}" title="${d.d}: ${d.n}"><i></i><small>${d.d.slice(8)}</small></div>`).join('')}</div></div>
-        <div class="glass-card"><h3>Reproducción completa</h3>
-          <p class="status ${o.youtube_configured ? 'ok' : 'warn'}">${o.youtube_configured ? '● Activada para todos los usuarios con cuenta' : '● Desactivada: los usuarios escuchan vistas previas de 30 s'}</p>
-          <p class="muted small">Pega una clave de la <b>YouTube Data API v3</b>. Se guarda solo en el servidor: ningún usuario puede leerla. Cada canción nueva cuesta ~101 unidades de cuota (10.000/día gratis ≈ 99 canciones nuevas al día); las ya encontradas se reutilizan para todos sin coste.</p>
-          <ol class="steps"><li><a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener">Activa YouTube Data API v3</a> en Google Cloud.</li><li>En <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Credenciales</a>, crea una clave de API y restríngela a «YouTube Data API v3».</li><li>Pégala aquí.</li></ol>
-          <div class="row"><input class="field" id="ytKey" type="password" placeholder="AIza…" autocomplete="off" spellcheck="false"><button class="pill primary" id="ytSave">Guardar</button></div>
-          <div class="row-btns"><button class="pill ghost sm" id="ytTest">Probar con una canción</button>${o.youtube_configured ? '<button class="pill ghost sm" id="ytDel">Quitar clave</button>' : ''}</div><p class="small muted" id="ytMsg"></p></div>
+        <div class="glass-card"><h3>Fuentes de audio</h3>
+          <ul class="sources">
+            <li><b>Catálogo (Deezer)</b><span class="status ok">● Activo</span><small>Búsqueda, artistas, álbumes y vistas previas de 30 s.</small></li>
+            <li><b>Versiones completas (Audius)</b><span class="status ok">● Activo</span><small>Si el propio artista subió la canción, suena completa en vez de la vista previa.</small></li>
+            <li><b>Radio en directo</b><span class="status ok">● Activo</span><small>Miles de emisoras con licencia, música completa 24/7.</small></li>
+            <li><b>Música libre (Jamendo)</b><span class="status ${cloud.jamendoId ? 'ok' : 'warn'}">● ${cloud.jamendoId ? 'Activo' : 'Opcional'}</span><small>Cientos de miles de canciones completas con licencia Creative Commons.</small></li>
+          </ul>
+          <p class="muted small">Para activar Jamendo, crea una app gratis en <a href="https://devportal.jamendo.com/" target="_blank" rel="noopener">devportal.jamendo.com</a> y pega aquí su <b>Client ID</b> (es un identificador público).</p>
+          <div class="row"><input class="field" id="jmId" placeholder="Client ID de Jamendo" value="${esc(cloud.jamendoId)}" autocomplete="off" spellcheck="false"><button class="pill primary" id="jmSave">Guardar</button></div>
+          ${cloud.jamendoId ? '<div class="row-btns"><button class="pill ghost sm" id="jmDel">Desactivar Jamendo</button></div>' : ''}<p class="small muted" id="jmMsg"></p></div>
         <div class="glass-card"><h3>Anuncio para todos</h3><p class="muted small">Aparece en el inicio de todos los usuarios al instante.</p>
           <textarea class="field" id="annText" maxlength="280" placeholder="Ej.: ¡Nuevos temas disponibles!">${esc(ann.text || '')}</textarea>
           <div class="row"><select class="field" id="annTone">${[['info', 'Información'], ['ok', 'Novedad'], ['warn', 'Aviso']].map(([v, l]) => `<option value="${v}" ${ann.tone === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
@@ -580,20 +593,63 @@ export async function admin() {
       <section class="glass-card"><h3>Usuarios (${users.length})</h3><div class="table-wrap"><table class="utable"><thead><tr><th>Usuario</th><th>Correo</th><th>Alta</th><th>Último acceso</th><th>Escuchas</th><th>Estado</th></tr></thead><tbody>
         ${users.map(u => `<tr><td>${avatar(u.display_name || u.email, (u.email.length * 47) % 360, 'sm')} ${esc(u.display_name || '—')}${u.is_admin ? ' <span class="tag">Admin</span>' : ''}</td><td>${esc(u.email)}</td><td>${new Date(u.created_at).toLocaleDateString('es')}</td><td>${u.last_sign_in_at ? new Date(u.last_sign_in_at).toLocaleString('es', { dateStyle: 'short', timeStyle: 'short' }) : '—'}</td><td>${u.plays}</td><td>${u.confirmed ? '<span class="ok-t">Confirmado</span>' : '<span class="warn-t">Pendiente</span>'}</td></tr>`).join('')}
       </tbody></table></div></section>`;
-    const ytMsg = $('#ytMsg');
-    $('#ytSave').onclick = async () => {
-      const k = $('#ytKey').value.trim(); if (!/^AIza[0-9A-Za-z_-]{30,}$/.test(k)) { ytMsg.textContent = 'Esa clave no parece válida (empieza por «AIza»).'; return; }
-      try { await cloud.admin.setYoutubeKey(k); toast('Clave guardada en el servidor'); admin(); } catch (e) { ytMsg.textContent = e.message; }
+    const jmMsg = $('#jmMsg');
+    $('#jmSave').onclick = async () => {
+      const id = $('#jmId').value.trim(); if (!/^[a-z0-9]{6,40}$/i.test(id)) { jmMsg.textContent = 'Ese Client ID no parece válido.'; return; }
+      jmMsg.textContent = 'Comprobando…';
+      if (!await jamendo.test(id).catch(() => false)) { jmMsg.textContent = '✕ Jamendo no acepta ese Client ID.'; return; }
+      try { await cloud.admin.setJamendo(id); toast('Jamendo activado para todos'); admin(); } catch (e) { jmMsg.textContent = e.message; }
     };
-    $('#ytDel')?.addEventListener('click', async () => { if (await confirmBox('¿Quitar la clave?', 'Los usuarios volverán a escuchar vistas previas (las canciones ya encontradas seguirán sonando completas).', 'Quitar')) { await cloud.admin.setYoutubeKey(''); admin(); } });
-    $('#ytTest').onclick = async () => {
-      ytMsg.textContent = 'Probando…'; store.del('ytmap');
-      const r = await cloud.resolve({ id: 'dz:3135553', title: 'One More Time', artist: 'Daft Punk', dur: 320 });
-      ytMsg.textContent = r.videoId ? `✔ Funciona: encontrado el vídeo ${r.videoId}` : `✕ ${({ not_configured: 'No hay clave configurada.', quota: 'Cuota de YouTube agotada por hoy.', youtube: 'YouTube rechazó la clave: revisa que la API esté activada.', not_found: 'No se encontró la canción.' })[r.error] || r.message || r.error}`;
-    };
+    $('#jmDel')?.addEventListener('click', async () => { await cloud.admin.setJamendo(''); toast('Jamendo desactivado'); admin(); });
     $('#annSave').onclick = async () => {
       try { await cloud.admin.setAnnouncement({ text: $('#annText').value.trim(), tone: $('#annTone').value, active: $('#annOn').checked && !!$('#annText').value.trim() }); toast('Anuncio actualizado'); } catch (e) { toast(e.message); }
     };
   } catch (e) { if (!stale(s)) view().innerHTML = errorState(e.message); }
 }
-void fmt; void hrefOf;
+/* ======================= RADIO EN DIRECTO ======================= */
+const countryOf = () => { const m = (navigator.languages?.[0] || navigator.language || '').match(/-([A-Z]{2})$/i); return m ? m[1].toUpperCase() : ''; };
+const COUNTRY = { ES: 'España', MX: 'México', AR: 'Argentina', CO: 'Colombia', CL: 'Chile', PE: 'Perú', US: 'Estados Unidos', VE: 'Venezuela', EC: 'Ecuador', UY: 'Uruguay', GB: 'Reino Unido', FR: 'Francia', DE: 'Alemania', IT: 'Italia', BR: 'Brasil', PT: 'Portugal' };
+export async function radioPage(tag = '') {
+  const s = begin(); setTint([200, 50, 90]);
+  const tg = RADIO_TAGS.find(x => x[0] === tag);
+  view().innerHTML = `<header class="radio-hero"><div class="rh-waves"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div><div class="eyebrow">En directo · música completa</div><h1 class="title-xl">${tg ? esc(tg[1]) : 'Radio'}</h1><p class="muted">${tg ? 'Emisoras de todo el mundo, sonando ahora.' : 'Miles de emisoras con licencia de todo el mundo, 24 horas. Funciona con la pantalla bloqueada.'}</p></div></header>
+    <div class="search-inline wide">${icons.radio}<input id="rdSearch" type="search" placeholder="Busca una emisora (Los 40, BBC, Cadena SER…)" autocomplete="off"></div>
+    <div class="chips scroll">${tg ? '<a class="chip" href="#/radio">← Todas</a>' : ''}${RADIO_TAGS.map(([v, l, c]) => `<a class="chip tagchip${v === tag ? ' on' : ''}" href="#/radio/${encodeURIComponent(v)}" style="--tc:${c}">${l}</a>`).join('')}</div>
+    <div id="rdResults"></div>
+    ${!tag && lib.stations.length ? `<section class="shelf"><div class="shelf-head"><h2>Tus emisoras</h2></div>${stationCards(lib.stations, 'Tus emisoras')}</section>` : ''}
+    <div id="rdMain">${skeletonShelves(2)}</div>`;
+  const box = $('#rdResults');
+  $('#rdSearch').oninput = debounce(async e => {
+    const q = e.target.value.trim(); if (!q) { box.innerHTML = ''; return; }
+    box.innerHTML = '<div class="sk sk-h2"></div>';
+    try { const r = await radio.search(q, 24); if (!stale(s)) box.innerHTML = r.length ? `<section class="shelf"><h2>Resultados</h2>${stationCards(r, `Radio: «${q}»`, { wrap: true })}</section>` : '<p class="muted pad">No encontramos emisoras con ese nombre.</p>'; } catch { box.innerHTML = errorState('No se pudo conectar con el directorio de radio.'); }
+  }, 350);
+  try {
+    if (tag) {
+      const list = await radio.byTag(tag, 60); if (stale(s)) return;
+      $('#rdMain').innerHTML = list.length ? stationCards(list, `Radio · ${tg ? tg[1] : tag}`, { wrap: true }) : '<div class="empty"><p>No hay emisoras de este estilo ahora mismo.</p></div>';
+      return;
+    }
+    const cc = countryOf();
+    const [top, near] = await Promise.all([radio.top(30), cc ? radio.byCountry(cc, 24).catch(() => []) : Promise.resolve([])]);
+    if (stale(s)) return;
+    const picks = await Promise.allSettled(['pop', 'latin', 'electronic', 'lofi'].map(t => radio.byTag(t, 16)));
+    if (stale(s)) return;
+    const names = { pop: 'Pop sin parar', latin: 'Ritmo latino', electronic: 'Electrónica', lofi: 'Lo-fi para concentrarte' };
+    $('#rdMain').innerHTML = `
+      ${near.length ? `<section class="shelf"><div class="shelf-head"><h2>Cerca de ti${COUNTRY[cc] ? ' · ' + COUNTRY[cc] : ''}</h2></div>${stationCards(near, 'Radio cerca de ti')}</section>` : ''}
+      <section class="shelf"><div class="shelf-head"><h2>Las más escuchadas del mundo</h2></div>${stationCards(top, 'Radio · más escuchadas')}</section>
+      ${['pop', 'latin', 'electronic', 'lofi'].map((t, i) => picks[i].value?.length ? `<section class="shelf"><div class="shelf-head"><h2>${names[t]}</h2><a class="more" href="#/radio/${t}">Ver todo</a></div>${stationCards(picks[i].value, names[t])}</section>` : '').join('')}
+      <p class="fine">Directorio de emisoras: radio-browser.info. Cada emisora es responsable de sus licencias de emisión.</p>`;
+  } catch { if (!stale(s)) $('#rdMain').innerHTML = errorState('No se pudo conectar con el directorio de radio.'); }
+}
+
+async function homeRadio(s) {
+  try {
+    const top = await radio.top(16); if (stale(s) || !top.length) return;
+    $('#homeRadio').innerHTML = `${lib.stations.length ? `<section class="shelf"><div class="shelf-head"><h2>Tus emisoras</h2><a class="more" href="#/radio">Radio</a></div>${stationCards(lib.stations, 'Tus emisoras')}</section>` : ''}
+      <section class="shelf"><div class="shelf-head"><h2>Radio en directo · música completa</h2><a class="more" href="#/radio">Ver todo</a></div>${stationCards(top, 'Radio · más escuchadas')}</section>`;
+  } catch { /* radio directory unreachable: home still works */ }
+}
+void fmt; void hrefOf; void audius;

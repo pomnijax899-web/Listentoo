@@ -22,7 +22,7 @@ export const lib = new (class extends EventTarget {
     this.visited = store.get('visited', []);
     this.local = store.get('local', []);
     this.settings = { ...DEFAULT_SETTINGS, ...store.get('settings', {}) };
-    delete this.settings.ytKey;
+    if ('ytKey' in this.settings) { delete this.settings.ytKey; store.set('settings', this.settings); } // old YouTube setup
     this.sync = null; // set by cloud.js while signed in
   }
   save(k) { store.set(k, this[k]); this.dispatchEvent(new CustomEvent('change', { detail: k })); }
@@ -30,15 +30,17 @@ export const lib = new (class extends EventTarget {
 
   /* ---- likes ---- */
   isLiked(t) { return !!t && this.liked.some(x => x.id === t.id); }
+  get songs() { return this.liked.filter(x => !x.live); }
+  get stations() { return this.liked.filter(x => x.live); }
   toggleLike(t) {
     if (!t) return;
     if (t.src === 'local') { toast('Los archivos locales no se pueden guardar en Me gusta'); return; }
     if (this.isLiked(t)) {
-      this.liked = this.liked.filter(x => x.id !== t.id); toast('Eliminada de Me gusta');
+      this.liked = this.liked.filter(x => x.id !== t.id); toast(t.live ? 'Emisora eliminada' : 'Eliminada de Me gusta');
       this._sync('like:remove', t.id);
     } else {
       const item = { ...slim(t), added: Date.now() };
-      this.liked.unshift(item); toast('Añadida a Me gusta');
+      this.liked.unshift(item); toast(t.live ? 'Emisora guardada en Tu radio' : 'Añadida a Me gusta');
       this._sync('like:add', item);
     }
     this.save('liked');

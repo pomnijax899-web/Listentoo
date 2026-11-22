@@ -1,4 +1,4 @@
-const VERSION = 'listentoo-v3';
+const VERSION = 'listentoo-v4';
 const IMG = 'listentoo-img-v1';
 const LIBS = 'listentoo-libs-v1';
 const SHELL = ['./', 'index.html', 'styles.css', 'manifest.webmanifest',

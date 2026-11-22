@@ -4,7 +4,7 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 import { SUPABASE_URL, SUPABASE_ANON_KEY, APP_URL } from './config.js';
 import { lib, slim } from './library.js';
 import { store, toast, debounce, uuid, isUuid } from './util.js';
-import { trackFromRef } from './api.js';
+import { trackFromRef, jamendo } from './api.js';
 
 export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: 'implicit', storageKey: 'lt-auth' }
@@ -32,7 +32,7 @@ export const cloud = new (class extends EventTarget {
   constructor() {
     super();
     this.user = null; this.profile = null; this.isAdmin = false; this.ready = false;
-    this.announcement = null; this.pending = 0; this._channel = null; this._uid = null;
+    this.announcement = null; this.jamendoId = ''; this.pending = 0; this._channel = null; this._uid = null;
     this._plTimers = new Map();
     this.pullSoon = debounce(() => this.pull(), 1200);
     this.saveSettingsSoon = debounce(s => this._saveSettings(s), 1500);
@@ -48,7 +48,8 @@ export const cloud = new (class extends EventTarget {
     let session = null;
     try { ({ data: { session } } = await sb.auth.getSession()); } catch { /* offline */ }
     await this._apply(session);
-    this.loadAnnouncement();
+    store.del('ytmap'); // memory from the old YouTube-based player
+    await this.loadAnnouncement();
     sb.channel('app-config').on('postgres_changes', { event: '*', schema: 'public', table: 'app_config' }, () => this.loadAnnouncement()).subscribe();
     this.ready = true;
     document.addEventListener('visibilitychange', () => { if (!document.hidden && this.user) this.pullSoon(); });
@@ -217,26 +218,15 @@ export const cloud = new (class extends EventTarget {
     if (error) throw error; return data ? fromPlaylist(data) : null;
   }
 
-  /* ---------------- full-length playback ---------------- */
-  async resolve(t) {
-    const map = store.get('ytmap', {});
-    if (map[t.id]) return { videoId: map[t.id] };
-    if (!this.user) return { error: 'guest' };
-    const { data, error } = await sb.functions.invoke('resolve-track', { body: { id: t.id, title: t.title, artist: t.artist, dur: Math.round(t.dur || 0) } });
-    if (error) {
-      let body = {};
-      try { body = await error.context.json(); } catch { /* network */ }
-      return { error: body.error || 'network', message: body.message };
-    }
-    if (data?.videoId) { map[t.id] = data.videoId; const keys = Object.keys(map); if (keys.length > 4000) delete map[keys[0]]; store.set('ytmap', map); }
-    return data || { error: 'network' };
-  }
-
   /* ---------------- announcements ---------------- */
   async loadAnnouncement() {
-    let data = null;
-    try { ({ data } = await sb.from('app_config').select('value,updated_at').eq('key', 'announcement').maybeSingle()); } catch { /* offline */ }
-    this.announcement = data?.value?.active && data.value.text ? { ...data.value, at: data.updated_at } : null;
+    let rows = [];
+    try { ({ data: rows } = await sb.from('app_config').select('key,value,updated_at').in('key', ['announcement', 'jamendo'])); } catch { /* offline */ }
+    const get = k => (rows || []).find(r => r.key === k);
+    const ann = get('announcement');
+    this.announcement = ann?.value?.active && ann.value.text ? { ...ann.value, at: ann.updated_at } : null;
+    const jm = get('jamendo')?.value?.client_id || '';
+    if (jm !== this.jamendoId) { this.jamendoId = jm; jamendo.setClient(jm); this.emit('sources'); }
     this.emit('announcement');
   }
 
@@ -244,7 +234,7 @@ export const cloud = new (class extends EventTarget {
   admin = {
     overview: async () => { const { data, error } = await sb.rpc('admin_overview'); if (error) throw new Error(friendly(error)); return data; },
     users: async () => { const { data, error } = await sb.rpc('admin_list_users', { p_limit: 300, p_offset: 0 }); if (error) throw new Error(friendly(error)); return data; },
-    setYoutubeKey: async key => { const { error } = await sb.rpc('admin_set_secret', { p_key: 'youtube_api_key', p_value: key }); if (error) throw new Error(friendly(error)); },
+    setJamendo: async clientId => { const { error } = clientId ? await sb.from('app_config').upsert({ key: 'jamendo', value: { client_id: clientId } }) : await sb.from('app_config').delete().eq('key', 'jamendo'); if (error) throw new Error(friendly(error)); await this.loadAnnouncement(); },
     setAnnouncement: async value => { const { error } = await sb.from('app_config').upsert({ key: 'announcement', value }); if (error) throw new Error(friendly(error)); },
     getAnnouncement: async () => { const { data } = await sb.from('app_config').select('value').eq('key', 'announcement').maybeSingle(); return data?.value || { text: '', active: false, tone: 'info' }; }
   };

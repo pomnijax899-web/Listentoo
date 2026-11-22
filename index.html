@@ -42,6 +42,7 @@
     <div class="top-right">
       <label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="m20 20-4-4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg><input id="searchInput" type="search" placeholder="Busca música…" autocomplete="off" enterkeyhint="search" aria-label="Buscar"><kbd>/</kbd></label>
       <button class="pill sm install" id="installBtn" hidden>Instalar</button>
+      <button class="theme-btn" id="themeBtn" aria-label="Temas" title="Temas"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18c1.2 0 1.8-.8 1.8-1.7 0-1.2-1-1.5-1-2.6 0-1 .8-1.7 1.9-1.7H17a4 4 0 0 0 4-4C21 6.6 17 3 12 3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="7.5" cy="11" r="1.4"/><circle cx="10.5" cy="7.5" r="1.4"/><circle cx="15" cy="7.8" r="1.4"/></svg></button>
       <a class="acct" id="accountBtn" href="#/cuenta"><span>Entrar</span></a>
     </div>
   </header>
@@ -76,8 +77,8 @@
   <span class="dock-glow"></span>
   <a href="#/inicio" data-nav="inicio"><svg viewBox="0 0 24 24"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Inicio</span></a>
   <a href="#/explorar" data-nav="explorar"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="m15.5 8.5-2 5-5 2 2-5z" fill="currentColor"/></svg><span>Explorar</span></a>
+  <a href="#/radio" data-nav="radio"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.4"/><path d="M7.8 16.2a6 6 0 0 1 0-8.4M16.2 7.8a6 6 0 0 1 0 8.4M5 19a10 10 0 0 1 0-14M19 5a10 10 0 0 1 0 14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg><span>Radio</span></a>
   <a href="#/biblioteca" data-nav="biblioteca"><svg viewBox="0 0 24 24"><path d="M5 4v16M9.5 4v16M14 5l4.5 15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg><span>Biblioteca</span></a>
-  <a href="#/temas" data-nav="temas"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18c1.2 0 1.8-.8 1.8-1.7 0-1.2-1-1.5-1-2.6 0-1 .8-1.7 1.9-1.7H17a4 4 0 0 0 4-4C21 6.6 17 3 12 3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="7.5" cy="11" r="1.4"/><circle cx="10.5" cy="7.5" r="1.4"/><circle cx="15" cy="7.8" r="1.4"/></svg><span>Temas</span></a>
   <a href="#/perfil" data-nav="perfil" id="dockMe"><svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Tú</span></a>
 </nav>
 
@@ -97,7 +98,6 @@
           <circle class="r-hit" cx="110" cy="110" r="104"/><circle class="r-knob" id="orKnob" cx="110" cy="6" r="6"/>
         </svg>
         <div class="or-disc"><img id="orCover" alt="" src="icons/cover.svg"><span class="or-hole"></span></div>
-        <div class="or-video" id="orVideo"></div>
       </div>
       <div class="or-side">
         <div class="or-meta"><div class="or-titles"><div id="orTitle" class="or-title ellipsis2"></div><a id="orArtist" class="or-artist ellipsis" href="#/cola"></a></div><button class="likebtn lg" id="orLike" aria-label="Me gusta"></button></div>
@@ -121,8 +121,6 @@
   </div>
 </section>
 
-<!-- official YouTube player: must remain visible while it plays -->
-<div id="ytBubble" hidden><div class="yb-head"><span>▶ Reproduciendo vía YouTube</span><button id="ybOpen" aria-label="Abrir órbita">↗</button><button id="ybMove" aria-label="Mover">⇅</button></div><div id="ytFrame"><div id="ytHost"></div></div></div>
 
 <div id="menu" class="menu" hidden></div>
 <div id="modal" class="modal" hidden></div>
