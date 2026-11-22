@@ -1,14 +1,19 @@
 // Supabase integration: auth, cross-device library sync (with realtime), play history,
 // admin API, announcements and full-length track resolution through the edge function.
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
+// The Supabase SDK is loaded lazily so the app paints before it arrives.
+const SDK = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
 import { SUPABASE_URL, SUPABASE_ANON_KEY, APP_URL } from './config.js';
 import { lib, slim } from './library.js';
 import { store, toast, debounce, uuid, isUuid } from './util.js';
 import { trackFromRef, jamendo } from './api.js';
 
-export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+export let sb = null;
+let sbLoading = null;
+export const getSb = () => sbLoading || (sbLoading = import(SDK).then(({ createClient }) => (sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: 'implicit', storageKey: 'lt-auth' }
-});
+}))));
+// quick hint (no network) so the UI can show "signed in" styling before the SDK loads
+export const hasStoredSession = () => { try { return !!localStorage.getItem('lt-auth'); } catch { return false; } };
 
 const ERR = {
   'Invalid login credentials': 'Correo o contraseña incorrectos.',
@@ -41,6 +46,7 @@ export const cloud = new (class extends EventTarget {
   get signedIn() { return !!this.user; }
 
   async init() {
+    await getSb();
     sb.auth.onAuthStateChange((event, s) => {
       if (event === 'PASSWORD_RECOVERY') { this.recovering = true; setTimeout(() => this.emit('recovery'), 0); }
       if (['SIGNED_IN', 'SIGNED_OUT', 'USER_UPDATED'].includes(event)) setTimeout(() => this._apply(s, event), 0);
@@ -85,21 +91,24 @@ export const cloud = new (class extends EventTarget {
 
   /* ---------------- auth ---------------- */
   async signUp(email, password, name) {
+    await getSb();
     const { data, error } = await sb.auth.signUp({ email, password, options: { data: { display_name: name }, emailRedirectTo: APP_URL } });
     if (error) throw new Error(friendly(error));
     if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) throw new Error(ERR['User already registered']);
     return { needsConfirm: !data.session };
   }
-  async signIn(email, password) { const { error } = await sb.auth.signInWithPassword({ email, password }); if (error) throw new Error(friendly(error)); }
-  async signOut() { await sb.auth.signOut(); }
-  async resetPassword(email) { const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: APP_URL }); if (error) throw new Error(friendly(error)); }
-  async updatePassword(password) { const { error } = await sb.auth.updateUser({ password }); if (error) throw new Error(friendly(error)); }
+  async signIn(email, password) { await getSb(); const { error } = await sb.auth.signInWithPassword({ email, password }); if (error) throw new Error(friendly(error)); }
+  async signOut() { await getSb(); await sb.auth.signOut(); }
+  async resetPassword(email) { await getSb(); const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: APP_URL }); if (error) throw new Error(friendly(error)); }
+  async updatePassword(password) { await getSb(); const { error } = await sb.auth.updateUser({ password }); if (error) throw new Error(friendly(error)); }
   async updateProfile(patch) {
+    await getSb();
     const { data, error } = await sb.from('profiles').update(patch).eq('id', this.user.id).select().single();
     if (error) throw new Error(friendly(error));
     this.profile = data; this.emit('auth');
   }
   async deleteAccount() {
+    await getSb();
     const { error } = await sb.rpc('delete_my_account'); if (error) throw new Error(friendly(error));
     store.del('synced:' + this._uid);
     await sb.auth.signOut().catch(() => {});
@@ -203,23 +212,48 @@ export const cloud = new (class extends EventTarget {
 
   /* ---------------- history ---------------- */
   logPlay(t) {
-    if (!this.user || !t || t.src === 'local') return;
+    if (!sb || !this.user || !t || t.src === 'local') return;
     sb.from('plays').insert({ track_id: t.id.slice(0, 100), title: (t.title || '').slice(0, 300), artist: (t.artist || '').slice(0, 300), cover: (t.cover || '').slice(0, 500) }).then(() => {}, () => {});
   }
   async stats() {
+    await getSb();
     const { data } = await sb.from('plays').select('artist,title,track_id,cover,played_at').order('played_at', { ascending: false }).limit(1000);
     return data || [];
   }
-  async clearHistory() { if (this.user) await sb.from('plays').delete().eq('user_id', this.user.id); }
+  async clearHistory() { await getSb(); if (this.user) await sb.from('plays').delete().eq('user_id', this.user.id); }
 
   /* ---------------- public playlists ---------------- */
   async publicPlaylist(id) {
+    await getSb();
     const { data, error } = await sb.from('playlists').select('id,name,description,tracks,is_public,created_at,updated_at,user_id').eq('id', id).maybeSingle();
     if (error) throw error; return data ? fromPlaylist(data) : null;
   }
 
+  /* ---------------- full-length playback via YouTube's official embedded player ---------------- */
+  async resolve(t, exclude = []) {
+    const map = store.get('ytmap2', {});
+    if (!exclude.length && map[t.id]) return { videoId: map[t.id] };
+    if (lib.settings.youtube === false) return { error: 'disabled' };
+    const remember = v => { map[t.id] = v; const ks = Object.keys(map); if (ks.length > 4000) delete map[ks[0]]; store.set('ytmap2', map); };
+    await getSb();
+    if (!exclude.length) { // shared cache: songs anyone already resolved play complete for everyone, guests included
+      try { const { data } = await sb.from('yt_matches').select('video_id').eq('track_id', t.id).maybeSingle(); if (data?.video_id) { remember(data.video_id); return { videoId: data.video_id }; } } catch { /* offline */ }
+    }
+    if (!this.user) return { error: 'guest' };
+    const { data, error } = await sb.functions.invoke('resolve-track', { body: { id: t.id, title: t.title, artist: t.artist, dur: Math.round(t.dur || 0), exclude } });
+    if (error) {
+      let body = {};
+      try { body = await error.context.json(); } catch { /* network */ }
+      return { error: body.error || 'network', message: body.message };
+    }
+    if (data?.videoId) remember(data.videoId);
+    return data || { error: 'network' };
+  }
+  forgetVideo(t) { const map = store.get('ytmap2', {}); delete map[t.id]; store.set('ytmap2', map); }
+
   /* ---------------- announcements ---------------- */
   async loadAnnouncement() {
+    await getSb();
     let rows = [];
     try { ({ data: rows } = await sb.from('app_config').select('key,value,updated_at').in('key', ['announcement', 'jamendo'])); } catch { /* offline */ }
     const get = k => (rows || []).find(r => r.key === k);
@@ -232,11 +266,12 @@ export const cloud = new (class extends EventTarget {
 
   /* ---------------- admin ---------------- */
   admin = {
-    overview: async () => { const { data, error } = await sb.rpc('admin_overview'); if (error) throw new Error(friendly(error)); return data; },
-    users: async () => { const { data, error } = await sb.rpc('admin_list_users', { p_limit: 300, p_offset: 0 }); if (error) throw new Error(friendly(error)); return data; },
-    setJamendo: async clientId => { const { error } = clientId ? await sb.from('app_config').upsert({ key: 'jamendo', value: { client_id: clientId } }) : await sb.from('app_config').delete().eq('key', 'jamendo'); if (error) throw new Error(friendly(error)); await this.loadAnnouncement(); },
-    setAnnouncement: async value => { const { error } = await sb.from('app_config').upsert({ key: 'announcement', value }); if (error) throw new Error(friendly(error)); },
-    getAnnouncement: async () => { const { data } = await sb.from('app_config').select('value').eq('key', 'announcement').maybeSingle(); return data?.value || { text: '', active: false, tone: 'info' }; }
+    overview: async () => { await getSb(); const { data, error } = await sb.rpc('admin_overview'); if (error) throw new Error(friendly(error)); return data; },
+    users: async () => { await getSb(); const { data, error } = await sb.rpc('admin_list_users', { p_limit: 300, p_offset: 0 }); if (error) throw new Error(friendly(error)); return data; },
+    setYoutubeKey: async key => { await getSb(); const { error } = await sb.rpc('admin_set_secret', { p_key: 'youtube_api_key', p_value: key }); if (error) throw new Error(friendly(error)); },
+    setJamendo: async clientId => { await getSb(); const { error } = clientId ? await sb.from('app_config').upsert({ key: 'jamendo', value: { client_id: clientId } }) : await sb.from('app_config').delete().eq('key', 'jamendo'); if (error) throw new Error(friendly(error)); await this.loadAnnouncement(); },
+    setAnnouncement: async value => { await getSb(); const { error } = await sb.from('app_config').upsert({ key: 'announcement', value }); if (error) throw new Error(friendly(error)); },
+    getAnnouncement: async () => { await getSb(); const { data } = await sb.from('app_config').select('value').eq('key', 'announcement').maybeSingle(); return data?.value || { text: '', active: false, tone: 'info' }; }
   };
 })();
 

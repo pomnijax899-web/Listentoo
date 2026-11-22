@@ -1,8 +1,8 @@
-const VERSION = 'listentoo-v4';
+const VERSION = 'listentoo-v5';
 const IMG = 'listentoo-img-v1';
 const LIBS = 'listentoo-libs-v1';
 const SHELL = ['./', 'index.html', 'styles.css', 'manifest.webmanifest',
-  'js/main.js', 'js/util.js', 'js/api.js', 'js/library.js', 'js/player.js', 'js/ui.js', 'js/views.js', 'js/cloud.js', 'js/config.js', 'js/themes.js',
+  'js/main.js', 'js/util.js', 'js/api.js', 'js/library.js', 'js/player.js', 'js/ui.js', 'js/views.js', 'js/cloud.js', 'js/config.js', 'js/themes.js', 'js/fx.js',
   'icons/icon.svg', 'icons/cover.svg', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', e => {

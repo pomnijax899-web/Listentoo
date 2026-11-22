@@ -8,7 +8,10 @@ import { lyrics as fetchLyrics, deezer } from './api.js';
 import { applyTheme, setCover } from './themes.js';
 import * as V from './views.js';
 import { icons, getList, trackMenu, showMenu, hideMenu, share, avatar } from './ui.js';
+import { fx, initPointerFx, reveal, initRing } from './fx.js';
 
+fx.init($('#nebula'));
+initPointerFx();
 applyTheme();
 
 /* ================= ROUTER ================= */
@@ -33,11 +36,20 @@ function route() {
   document.body.dataset.route = name;
   $$('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === NAV[name]));
   moveDockGlow();
-  if (!soft) { $('#main').scrollTop = 0; const v = $('#view'); v.classList.remove('enter'); void v.offsetWidth; v.classList.add('enter'); }
   hideMenu();
   if (orbitOpen()) closeOrbit();
-  routes[name](parts, new URLSearchParams(qs || ''));
+  const render = () => {
+    $$('.ring3d').forEach(r => r._stop?.());
+    if (!soft) $('#main').scrollTop = 0;
+    routes[name](parts, new URLSearchParams(qs || ''));
+  };
+  const fancy = !soft && document.documentElement.dataset.fx === 'on' && document.startViewTransition && document.body.classList.contains('ready');
+  if (fancy) document.startViewTransition(render);
+  else { render(); if (!soft) { const v = $('#view'); v.classList.remove('enter'); void v.offsetWidth; v.classList.add('enter'); } }
 }
+// views render asynchronously: reveal sections and wake 3D rings whenever new content lands
+const enhance = debounce(() => { const v = $('#view'); reveal(v); v.querySelectorAll('.ring3d:not([data-ready])').forEach(r => { r.dataset.ready = '1'; initRing(r); }); }, 40);
+new MutationObserver(enhance).observe($('#view'), { childList: true, subtree: true });
 addEventListener('hashchange', route);
 $('#back').onclick = () => history.back();
 $('#themeBtn').onclick = () => { location.hash = '#/temas'; };
@@ -82,7 +94,7 @@ cloud.addEventListener('recovery', () => { if (!document.body.classList.contains
 lib.addEventListener('change', e => {
   const r = document.body.dataset.route, d = e.detail;
   if (d === 'liked' || d === 'all') refreshLikes();
-  if (d === 'settings') applyTheme();
+  if (d === 'settings' || d === 'all') applyTheme();
   if ((d === 'playlists' || d === 'all') && r === 'playlist') route();
   if ((d === 'liked' || d === 'all') && r === 'megusta') route();
   if (['local', 'playlists', 'albums', 'artists', 'dzplaylists', 'all'].includes(d) && r === 'biblioteca') route();
@@ -204,6 +216,7 @@ function renderState() {
   const p = player.paused, ic = p ? icons.play : icons.pause, lbl = p ? 'Reproducir' : 'Pausar';
   ['#isPlay', '#isPlay2', '#orPlay'].forEach(s => { const b = $(s); b.innerHTML = ic; b.setAttribute('aria-label', lbl); b.classList.toggle('loading', player.loading); });
   document.body.classList.toggle('is-playing', !p);
+  fx.setPlaying(!p);
   $$('.bigplay[data-list]').forEach(b => { const L = getList(b.dataset.list); const mine = L && L.href && player.ctx.href === L.href; b.innerHTML = mine && !p ? icons.pause : icons.play; });
   $$('[data-kind][data-id]').forEach(c => { const href = c.getAttribute('href'); const on = !!href && player.ctx.href === href && !p; c.classList.toggle('active-play', on); const f = c.querySelector('.fab'); if (f && c.dataset.kind) f.innerHTML = on ? icons.pause : icons.play; });
 }
@@ -226,11 +239,35 @@ function renderMode() {
   ['#isRepeat', '#orRepeat'].forEach(s => { const b = $(s); b.innerHTML = player.repeat === 2 ? icons.repeat1 : icons.repeat; b.classList.toggle('on', player.repeat > 0); b.title = ['Repetir', 'Repetir todo', 'Repetir canción'][player.repeat]; });
   $$('[data-hero="shuffle"]').forEach(b => b.classList.toggle('on', player.shuffle));
 }
-const MODE_TXT = { preview: 'Vista previa · 30 s', full: 'Completa', live: 'En directo' };
+const MODE_TXT = { preview: 'Vista previa · 30 s', full: 'Completa', live: 'En directo', yt: 'Completa' };
 function renderEngine() {
   const m = player.mode;
-  $$('[data-mode-badge]').forEach(b => { b.textContent = MODE_TXT[m] || ''; b.dataset.m = m; b.hidden = !m; });
+  $$('[data-mode-badge]').forEach(b => { b.textContent = MODE_TXT[m] || ''; b.dataset.m = m === 'yt' ? 'full' : m; b.hidden = !m; });
+  const yt = player.engine === 'yt';
+  $('#holo').hidden = !yt;
+  fx.hold(yt);
+  document.body.classList.toggle('yt-on', yt);
+  placeHolo();
 }
+/* The official YouTube player must stay visible while it plays: a floating holo screen, or inside the Orbit stage */
+function placeHolo() {
+  const h = $('#holo');
+  if (h.hidden) return;
+  if (orbitOpen()) {
+    const r = $('#orScreen').getBoundingClientRect();
+    Object.assign(h.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px', right: 'auto', bottom: 'auto' });
+    h.classList.add('in-orbit');
+  } else { h.removeAttribute('style'); h.classList.remove('in-orbit'); }
+}
+addEventListener('resize', placeHolo, { passive: true });
+player.addEventListener('needtap', e => {
+  $('#holo').classList.toggle('tap', e.detail);
+  $('#holoTap').hidden = !e.detail;
+  if (e.detail && !orbitOpen() && $('#holo').hidden === false) toast('Toca el vídeo una vez para activar el sonido');
+});
+$('#holoOpen').onclick = () => openOrbit();
+$('#holoMove').onclick = () => { const h = $('#holo'), c = ((+h.dataset.corner || 0) + 1) % 4; h.dataset.corner = c; store.set('holoCorner', c); };
+$('#holo').dataset.corner = store.get('holoCorner', 0);
 function renderVolume() {
   const v = player.muted ? 0 : player.volume;
   ['#isVol', '#orVol'].forEach(s => setP($(s), v));
@@ -244,10 +281,15 @@ player.addEventListener('engine', () => { renderEngine(); renderTime(); });
 player.addEventListener('volume', renderVolume);
 player.addEventListener('queue', () => { renderNext(); if (document.body.dataset.route === 'cola') V.queue(); });
 player.addEventListener('sleep', () => $('#orSleep').classList.toggle('on', !!player.sleep));
-player.addEventListener('hint', () => {
-  if (store.get('previewHint', 0) >= 2) return;
-  store.set('previewHint', store.get('previewHint', 0) + 1);
-  toast('Esta canción solo está disponible como vista previa de 30 s. En Radio tienes música completa en directo.', { text: 'Abrir radio', run: () => { location.hash = '#/radio'; } });
+const hinted = new Set();
+player.addEventListener('hint', e => {
+  const r = e.detail;
+  if (r === 'disabled' || hinted.has(r)) return;
+  hinted.add(r);
+  if (r === 'guest') toast('Vista previa de 30 s. Inicia sesión para escuchar canciones completas.', { text: 'Entrar', run: () => { store.set('afterLogin', location.hash); location.hash = '#/cuenta'; } });
+  else if (r === 'not_configured') toast(cloud.isAdmin ? 'Falta la clave de YouTube para las canciones completas.' : 'De momento esta canción suena como vista previa de 30 s.', cloud.isAdmin ? { text: 'Configurar', run: () => { location.hash = '#/admin'; } } : { text: 'Abrir radio', run: () => { location.hash = '#/radio'; } });
+  else if (r === 'quota' || r === 'rate_limited') toast('Por hoy se agotó el cupo de canciones nuevas completas. Las ya escuchadas siguen completas.');
+  else toast('Esta canción suena como vista previa de 30 s. En Radio tienes música completa en directo.', { text: 'Abrir radio', run: () => { location.hash = '#/radio'; } });
 });
 
 const on = (ids, fn) => ids.forEach(s => { $(s).onclick = e => { e.stopPropagation(); fn(e); }; });
@@ -286,13 +328,19 @@ const orbitOpen = () => $('#orbit').classList.contains('open');
 function openOrbit() {
   if (!player.current) return;
   const o = $('#orbit'); o.hidden = false;
-  requestAnimationFrame(() => { o.classList.add('open'); document.body.classList.add('orbit-open'); });
+  requestAnimationFrame(() => { o.classList.add('open'); document.body.classList.add('orbit-open'); setTimeout(placeHolo, 30); setTimeout(placeHolo, 600); });
 }
 function closeOrbit() {
   const o = $('#orbit'); o.classList.remove('open'); document.body.classList.remove('orbit-open');
+  placeHolo();
   setTimeout(() => { if (!orbitOpen()) o.hidden = true; }, 380);
 }
 $('#orClose').onclick = closeOrbit;
+$('#orbit').addEventListener('pointermove', e => {
+  if (e.pointerType !== 'mouse' || document.documentElement.dataset.fx !== 'on') return;
+  const x = e.clientX / innerWidth - .5, y = e.clientY / innerHeight - .5;
+  $('#orStage').style.setProperty('--px', (x * 18).toFixed(2) + 'deg'); $('#orStage').style.setProperty('--py', (-y * 14).toFixed(2) + 'deg');
+}, { passive: true });
 $('#orCtx').onclick = () => closeOrbit();
 $('#orArtist').onclick = () => closeOrbit();
 let sy = null;
@@ -404,10 +452,12 @@ renderMode(); renderVolume(); renderState(); renderTime(); renderEngine(); rende
   const hadAuthHash = /access_token=|type=recovery|error_description=/.test(location.hash);
   const isRecovery = /type=recovery/.test(location.hash);
   const authError = (location.hash.match(/error_description=([^&]+)/) || [])[1];
-  await Promise.race([cloud.init(), new Promise(r => setTimeout(r, 5000))]);
+  if (hadAuthHash) await Promise.race([cloud.init(), new Promise(r => setTimeout(r, 6000))]); // tokens in the URL must be read first
   if (hadAuthHash || !location.hash || !location.hash.startsWith('#/')) history.replaceState(null, '', isRecovery ? '#/perfil' : '#/inicio');
-  renderAccount(); applyTheme();
   route();
+  document.body.classList.add('ready');
+  if (!hadAuthHash) { const go = () => cloud.init().catch(() => {}); 'requestIdleCallback' in window ? requestIdleCallback(go, { timeout: 1200 }) : setTimeout(go, 300); }
+  renderAccount();
   if (authError) toast(decodeURIComponent(authError.replace(/\+/g, ' ')));
   else if (hadAuthHash && !isRecovery && cloud.signedIn) toast('¡Cuenta confirmada! Ya estás dentro.');
   if (isRecovery && cloud.signedIn && !document.querySelector('#np1')) V.changePassword(true);

@@ -18,7 +18,9 @@
 <link rel="preconnect" href="https://api.deezer.com">
 <link rel="preconnect" href="https://cdn-images.dzcdn.net" crossorigin>
 <link rel="preconnect" href="https://mmengqeunonzusaxtdrm.supabase.co" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
+<link rel="modulepreload" href="js/main.js">
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
 <script>
   // paint the chosen theme's background before CSS/JS load to avoid a flash
@@ -30,7 +32,8 @@
 </script>
 </head>
 <body>
-<div id="aurora" aria-hidden="true"><i class="a1"></i><i class="a2"></i><i class="a3"></i><span class="grain"></span></div>
+<canvas id="nebula" aria-hidden="true"></canvas>
+<div id="aurora" aria-hidden="true"></div>
 
 <div id="app">
   <header id="top">
@@ -55,7 +58,7 @@
     <button class="is-art" id="isOpen" aria-label="Abrir reproductor"><img id="isCover" src="icons/cover.svg" alt=""><svg class="is-ring" viewBox="0 0 40 40"><circle cx="20" cy="20" r="18.5"/></svg></button>
     <div class="is-text"><div class="is-title"><span id="isTitle">Elige algo para escuchar</span></div><div class="is-artist" id="isArtist">listentoo</div></div>
     <span class="is-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
-    <button class="is-btn" id="isPlay" aria-label="Reproducir"></button>
+    <button class="is-btn" id="isPlay" aria-label="Reproducir" data-magnet></button>
   </div>
   <div class="is-more"><div class="is-more-in">
     <div class="is-seek"><span data-cur>0:00</span><div class="slider" id="isSeek" role="slider" aria-label="Progreso" tabindex="0"><div class="track"><div class="fill"></div></div><div class="knob"></div></div><span data-dur>0:00</span></div>
@@ -92,12 +95,17 @@
       <button class="iconbtn" id="orMore" aria-label="Más"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/></svg></button>
     </header>
     <div class="or-body">
-      <div class="or-stage">
-        <svg class="or-ring" id="orRing" viewBox="0 0 220 220" aria-label="Progreso circular">
-          <circle class="r-track" cx="110" cy="110" r="104"/><circle class="r-prog" id="orProg" cx="110" cy="110" r="104"/>
-          <circle class="r-hit" cx="110" cy="110" r="104"/><circle class="r-knob" id="orKnob" cx="110" cy="6" r="6"/>
-        </svg>
-        <div class="or-disc"><img id="orCover" alt="" src="icons/cover.svg"><span class="or-hole"></span></div>
+      <div class="or-stage" id="orStage">
+        <div class="or-3d">
+          <div class="or-halo"></div>
+          <div class="or-disc"><img id="orCover" alt="" src="icons/cover.svg"><span class="or-grooves"></span><span class="or-hole"></span></div>
+          <svg class="or-ring" id="orRing" viewBox="0 0 220 220" aria-label="Progreso circular">
+            <circle class="r-track" cx="110" cy="110" r="104"/><circle class="r-prog" id="orProg" cx="110" cy="110" r="104"/>
+            <circle class="r-hit" cx="110" cy="110" r="104"/><circle class="r-knob" id="orKnob" cx="110" cy="6" r="6"/>
+          </svg>
+          <div class="or-moons"><i></i><i></i><i></i></div>
+        </div>
+        <div class="or-screen" id="orScreen"></div>
       </div>
       <div class="or-side">
         <div class="or-meta"><div class="or-titles"><div id="orTitle" class="or-title ellipsis2"></div><a id="orArtist" class="or-artist ellipsis" href="#/cola"></a></div><button class="likebtn lg" id="orLike" aria-label="Me gusta"></button></div>
@@ -105,7 +113,7 @@
         <div class="or-ctrls">
           <button class="iconbtn" id="orShuffle" aria-label="Aleatorio"></button>
           <button class="iconbtn lg" id="orPrev" aria-label="Anterior"><svg viewBox="0 0 24 24"><path d="M19 5.6v12.8a1 1 0 0 1-1.53.85L8 13.1V18a1 1 0 0 1-2 0V6a1 1 0 0 1 2 0v4.9l9.47-6.15A1 1 0 0 1 19 5.6z"/></svg></button>
-          <button class="playbtn xl" id="orPlay" aria-label="Reproducir"></button>
+          <button class="playbtn xl" id="orPlay" aria-label="Reproducir" data-magnet></button>
           <button class="iconbtn lg" id="orNext" aria-label="Siguiente"><svg viewBox="0 0 24 24"><path d="M5 5.6v12.8a1 1 0 0 0 1.53.85L16 13.1V18a1 1 0 0 0 2 0V6a1 1 0 0 0-2 0v4.9L6.53 4.75A1 1 0 0 0 5 5.6z"/></svg></button>
           <button class="iconbtn" id="orRepeat" aria-label="Repetir"></button>
         </div>
@@ -121,6 +129,13 @@
   </div>
 </section>
 
+
+<!-- Official YouTube player: sandboxed (cannot open tabs or windows) and kept visible while it plays -->
+<div id="holo" hidden>
+  <div class="holo-head"><span class="holo-dot"></span><span class="holo-lbl">YouTube · completa</span><button id="holoMove" aria-label="Mover a otra esquina" title="Mover">⇄</button><button id="holoOpen" aria-label="Abrir reproductor" title="Abrir">⤢</button></div>
+  <div class="holo-screen"><div id="ytHost"></div></div>
+  <div class="holo-tap" id="holoTap" hidden>Toca el vídeo una vez para activar el sonido</div>
+</div>
 
 <div id="menu" class="menu" hidden></div>
 <div id="modal" class="modal" hidden></div>

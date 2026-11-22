@@ -2,6 +2,7 @@
 // drive the animated background. With dynamic colour on, the aurora follows the cover art.
 import { $, imagePalette, rgb } from './util.js';
 import { lib } from './library.js';
+import { fx } from './fx.js';
 
 export const THEMES = {
   aurora:     { name: 'Aurora',     mode: 'dark',  bg: '#08070f', ink: '#f6f4ff', sub: '#a7a2c4', accent: '#a78bfa', accent2: '#22d3ee', aur: ['#6d28d9', '#0891b2', '#be185d'] },
@@ -41,6 +42,8 @@ export function applyTheme() {
   st.setProperty('--accent-rgb', acc.join(','));
   st.setProperty('--accent2', t.accent2);
   const meta = $('meta[name=theme-color]'); if (meta) meta.content = t.bg;
+  fx.setPalette(aur, t.mode === 'light');
+  fx.setEnabled(s.effects !== false);
 }
 
 export async function setCover(url) {
