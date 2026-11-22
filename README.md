@@ -3,58 +3,55 @@ App de música web e instalable (PWA) con cuentas de usuario, sincronización en
 
 **Web:** https://pomnijax899-web.github.io/Listentoo/
 
-## Qué incluye
-- **Catálogo completo** de Deezer (más de 120 millones de canciones): artistas, álbumes, discografías, listas, playlists, géneros y estados de ánimo.
-- **Reproducción dentro de la app:**
-  - Canciones comerciales completas a través del reproductor oficial de YouTube integrado, para usuarios con cuenta, una vez que el admin configura la clave.
-  - Música independiente de Audius y archivos del dispositivo, siempre completos.
-  - Sin cuenta, o sin clave configurada: vistas previas de 30 s.
-- **Cuentas** (Supabase Auth): registro, acceso, recuperación y cambio de contraseña, perfil, borrado de cuenta.
-- **Sincronización en tiempo real** de «Me gusta», playlists, álbumes, artistas seguidos, historial y ajustes entre todos los dispositivos.
-- **Playlists públicas** compartibles por enlace (`#/p/<id>`).
-- **Panel de admin** (solo la cuenta administradora):
-  - Estadísticas y gráfica de escuchas.
-  - Lista de usuarios.
-  - Clave de YouTube guardada en el servidor.
-  - Anuncios en directo para todos los usuarios.
-- **Temas:** Aurora, Medianoche, Neón, Océano, Bosque, Atardecer, Nube, Sakura, Arena y Sistema. Opciones de color dinámico según la portada, aurora animada y vinilo giratorio. Se sincronizan con la cuenta.
-- **Interfaz Orbit:**
-  - La «isla», un mini reproductor flotante que se expande.
-  - Dock de cristal y fondo aurora con los colores de la portada.
-  - Álbumes con vinilo que asoma de la funda.
-  - Reproductor orbital con anillo de progreso que se puede arrastrar y letras sincronizadas (LRCLIB).
-- **Controles del sistema** mediante Media Session:
-  - iPhone: Dynamic Island y pantalla de bloqueo.
-  - HyperOS y Android: notificación multimedia y Super Island.
-  - Escritorio: Windows y macOS.
-  - Opcional: notificaciones de «sonando ahora» con botones.
+## De dónde sale la música
+Todo suena dentro de la app con el reproductor de audio nativo. No se usa YouTube. Así la música sigue sonando con la pantalla bloqueada y aparece en la Dynamic Island, en HyperOS y en los controles multimedia del sistema.
+
+| Fuente | Qué aporta | Cómo suena |
+|---|---|---|
+| **Deezer** | Catálogo comercial completo (más de 120 M de canciones): artistas, álbumes, listas, playlists, géneros | Vista previa de 30 s |
+| **Audius** | Música independiente, y versiones oficiales que suben los propios artistas | **Completa**. Si el artista de una canción del catálogo la subió él mismo a Audius, se reproduce completa en lugar de la vista previa (emparejamiento estricto: mismo artista, mismo título, duración similar, sin remixes ni covers) |
+| **Radio en directo** (radio-browser.info) | Miles de emisoras con licencia de todo el mundo, filtradas para que sean de música | **Completa**, en directo 24/7 |
+| **Jamendo** (opcional) | Cientos de miles de canciones con licencia Creative Commons | **Completa**. Se activa desde el panel de admin con un Client ID gratuito |
+| **Tus archivos** | MP3, M4A, FLAC, WAV, OGG… guardados en el dispositivo | **Completa** y sin conexión |
+| **LRCLIB** | Letras sincronizadas | — |
+
+No existe una fuente gratuita y legal que permita escuchar a la carta, completa, cualquier canción comercial. Ofrecerlo exigiría licencias discográficas o que cada usuario conecte su suscripción (Spotify Premium, Apple Music…).
+
+## Funciones
+- **Inicio:** accesos rápidos, Top 50, emisoras en directo, álbumes, artistas, playlists, estados de ánimo y recomendaciones según los artistas que sigues.
+- **Explorar:** búsqueda de canciones, artistas, álbumes, playlists, emisoras y canciones completas; géneros y estados de ánimo.
+- **Radio:** emisoras cercanas según el idioma del dispositivo, las más escuchadas, 16 géneros, buscador de emisoras y emisoras guardadas.
+- **Cuentas (Supabase):** registro, acceso, recuperación de contraseña, perfil y borrado de cuenta.
+- **Sincronización** en tiempo real entre dispositivos, y playlists públicas por enlace.
+- **Panel de admin:** estadísticas, usuarios, fuentes de audio y anuncios en directo.
+- **Temas:** 10 temas, color dinámico, aurora animada y vinilo giratorio.
+- **Interfaz Orbit:** isla flotante, dock, reproductor orbital con anillo de progreso, letras sincronizadas y temporizador.
+- **Controles del sistema (Media Session):** Dynamic Island y pantalla de bloqueo en iPhone, notificación multimedia en HyperOS y Android, y controles de Windows y macOS. Opcionalmente, notificaciones con botones.
 
 ## Arquitectura
 ```
 index.html / styles.css / sw.js     shell, diseño y service worker (offline)
 js/main.js      router, isla, órbita, letras, notificaciones
-js/views.js     páginas (inicio, explorar, artista, álbum, cuenta, perfil, temas, admin…)
+js/views.js     páginas (inicio, explorar, radio, artista, álbum, cuenta, perfil, temas, admin…)
 js/ui.js        componentes
-js/player.js    motor de reproducción (audio + YouTube) y Media Session
-js/cloud.js     Supabase: auth, sincronización, historial, admin, reproducción completa
+js/player.js    motor de reproducción (audio nativo) y Media Session
+js/api.js       Deezer, Audius (+ emparejamiento de versiones completas), Radio Browser, Jamendo, LRCLIB
+js/cloud.js     Supabase: auth, sincronización, historial, configuración, admin
 js/library.js   biblioteca local (caché de la nube)
 js/themes.js    motor de temas
-js/api.js       Deezer, Audius, LRCLIB
 supabase/migrations/   esquema SQL con Row Level Security
-supabase/functions/resolve-track/   busca la versión completa de una canción (la clave de YouTube nunca llega al navegador)
+supabase/functions/resolve-track/   retirada (antes buscaba en YouTube); responde 410
 ```
 
 ### Seguridad
-- Todas las tablas tienen RLS: cada usuario solo puede leer y modificar sus propios datos.
-- El rol de admin vive en la tabla `admins`, que solo se puede escribir desde el servidor. Ninguna cuenta puede hacerse admin desde la app.
-- La clave de YouTube está en `app_secrets`, sin ninguna política de acceso, y solo la lee la función de servidor.
+- Todas las tablas tienen RLS: cada usuario solo accede a sus propios datos.
+- El rol de admin se asigna únicamente desde el servidor.
 - La clave pública de Supabase (`js/config.js`) es pública por diseño.
 
 ## Puesta en marcha (admin)
-1. **Clave de YouTube:** entra con la cuenta admin → *Tú → Panel de admin → Reproducción completa*. Pega una clave de la *YouTube Data API v3* y pulsa «Probar con una canción».
-2. **Supabase → Authentication**:
-   - *URL Configuration*: pon el **Site URL** a `https://pomnijax899-web.github.io/Listentoo/` y añádela también en *Redirect URLs*. Lo necesitan los enlaces de confirmación y de recuperación de contraseña.
-   - *Sign In / Providers → Email*: el correo gratuito de Supabase solo envía unos pocos emails por hora. Para registros abiertos, configura un SMTP propio (por ejemplo Resend o Brevo) o desactiva «Confirm email».
+1. **Jamendo (opcional):** crea una app gratis en https://devportal.jamendo.com/ y pega su Client ID en *Tú → Panel de admin → Fuentes de audio*.
+2. **Supabase → Authentication → URL Configuration:** pon el Site URL y las Redirect URLs a `https://pomnijax899-web.github.io/Listentoo/`.
+3. **Registros abiertos:** el correo gratuito de Supabase solo envía unos pocos emails por hora. Configura un SMTP propio o desactiva «Confirm email».
 
 ## Ejecutar en local
 Sin paso de build: `python3 -m http.server` en esta carpeta y abre `http://localhost:8000`.

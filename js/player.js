@@ -1,41 +1,16 @@
-// Playback: context + manual queue, shuffle/repeat, autoplay radio, sleep timer and two engines
-// (HTML audio, official YouTube IFrame player) behind one interface. Publishes Media Session
-// metadata so the OS can show the track in the iOS Dynamic Island / lock screen, HyperOS and
-// Android media notifications, and desktop media hubs.
+// Playback engine: one native <audio> element for every source (catalog previews, full Audius
+// and Jamendo tracks, live radio and local files). Native audio keeps playing with the screen
+// locked and publishes Media Session metadata, so the OS shows it in the iOS Dynamic Island /
+// lock screen, HyperOS & Android media notifications and desktop media hubs.
+// Also: context + manual queue, shuffle/repeat, autoplay radio and a sleep timer.
 import { store, idb, toast } from './util.js';
-import { deezer } from './api.js';
+import { deezer, findFull, radio } from './api.js';
 import { lib } from './library.js';
 import { cloud } from './cloud.js';
 
 const audio = new Audio();
 audio.preload = 'auto';
 audio.setAttribute('playsinline', '');
-
-const yt = {
-  ready: null, player: null,
-  load() {
-    if (this.ready) return this.ready;
-    this.ready = new Promise((res, rej) => {
-      const t = setTimeout(() => { this.ready = null; rej(new Error('No se pudo cargar el reproductor')); }, 15000);
-      window.onYouTubeIframeAPIReady = () => {
-        this.player = new YT.Player('ytHost', {
-          width: '100%', height: '100%',
-          playerVars: { playsinline: 1, controls: 0, rel: 0, iv_load_policy: 3, disablekb: 1, fs: 0, origin: location.origin },
-          events: {
-            onReady: () => { clearTimeout(t); res(this.player); },
-            onStateChange: e => this.onState(e.data),
-            onError: e => this.onError(e.data)
-          }
-        });
-      };
-      const s = document.createElement('script'); s.src = 'https://www.youtube.com/iframe_api';
-      s.onerror = () => { clearTimeout(t); this.ready = null; rej(new Error('No se pudo cargar el reproductor')); };
-      document.head.append(s);
-    });
-    return this.ready;
-  },
-  onState() {}, onError() {}
-};
 
 export const player = new (class extends EventTarget {
   constructor() {
@@ -47,58 +22,54 @@ export const player = new (class extends EventTarget {
     this.repeat = store.get('repeat', 0);
     this.volume = store.get('volume', 0.85);
     this.muted = false;
-    this.engine = 'audio';
-    this.mode = '';              // 'full' | 'preview' | 'yt'
-    this.reason = '';            // why a preview is playing: guest | not_configured | quota | not_found | ...
+    this.mode = '';              // 'full' | 'preview' | 'live'
     this.loading = false;
     this.sleep = null;
-    this._token = 0; this._blob = null; this._ytPlaying = false; this._hinted = false;
+    this._token = 0; this._blob = null; this._hinted = false; this._retries = 0;
     audio.volume = this.volume;
 
-    audio.addEventListener('ended', () => this.engine === 'audio' && this._ended());
+    audio.addEventListener('ended', () => this._ended());
     audio.addEventListener('play', () => this._emit('state'));
     audio.addEventListener('pause', () => this._emit('state'));
     audio.addEventListener('waiting', () => { this.loading = true; this._emit('state'); });
-    audio.addEventListener('playing', () => { this.loading = false; this._emit('state'); });
+    audio.addEventListener('playing', () => { this.loading = false; this._retries = 0; this._emit('state'); });
     audio.addEventListener('error', () => {
-      if (this.engine !== 'audio' || !audio.getAttribute('src') || !this.current) return;
-      toast(`No se pudo reproducir «${this.current.title}»`); setTimeout(() => this.next(true), 900);
+      if (!audio.getAttribute('src') || !this.current) return;
+      const t = this.current;
+      if (t.live && this._retries < 1) { this._retries++; audio.load(); audio.play().catch(() => {}); return; } // radio hiccup: reconnect once
+      toast(t.live ? `La emisora «${t.title}» no responde` : `No se pudo reproducir «${t.title}»`);
+      setTimeout(() => this.current === t && this.next(true), 900);
     });
-    yt.onState = s => {
-      if (this.engine !== 'yt') return;
-      this._ytPlaying = s === 1; this.loading = s === 3;
-      if (s === 0) this._ended();
-      this._emit('state');
-    };
-    yt.onError = () => { if (this.engine === 'yt' && this.current) { toast('Ese vídeo no está disponible aquí: usando la vista previa'); this.reason = 'unavailable'; this._playPreview(this.current, this._token); } };
     setInterval(() => { if (!this.paused) { this._emit('time'); this._checkSleep(); } }, 250);
     this._mediaSession();
   }
   _emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail })); }
 
-  get paused() { return this.engine === 'yt' ? !this._ytPlaying : audio.paused; }
-  get time() { return this.engine === 'yt' ? (yt.player?.getCurrentTime?.() || 0) : audio.currentTime; }
+  get paused() { return audio.paused; }
+  get live() { return !!this.current?.live; }
+  get time() { return audio.currentTime || 0; }
   get duration() {
-    const d = this.engine === 'yt' ? yt.player?.getDuration?.() : audio.duration;
+    if (this.live) return 0;
+    const d = audio.duration;
     return isFinite(d) && d > 0 ? d : (this.mode === 'preview' ? 30 : this.current?.dur || 0);
   }
   seek(t) {
+    if (this.live) return;
     t = Math.max(0, Math.min(t, this.duration - 0.25));
-    this.engine === 'yt' ? yt.player?.seekTo(t, true) : (audio.currentTime = t);
-    this._emit('time');
+    audio.currentTime = t; this._emit('time');
   }
   setVolume(v) {
     this.volume = Math.max(0, Math.min(1, v)); store.set('volume', this.volume);
     if (this.volume > 0) this.muted = false;
-    this._applyVolume(); this._emit('volume');
+    audio.volume = this.muted ? 0 : this.volume; this._emit('volume');
   }
-  toggleMute() { this.muted = !this.muted; this._applyVolume(); this._emit('volume'); }
-  _applyVolume() { const v = this.muted ? 0 : this.volume; audio.volume = v; yt.player?.setVolume?.(Math.round(v * 100)); }
+  toggleMute() { this.muted = !this.muted; audio.volume = this.muted ? 0 : this.volume; this._emit('volume'); }
   play() {
     if (!this.current) { const seed = lib.recent.length ? lib.recent : lib.liked; if (seed.length) this.playList(seed, 0, { label: 'Escuchado recientemente' }); return; }
-    if (this.engine === 'yt') yt.player?.playVideo(); else audio.play().catch(() => {});
+    if (this.live && audio.paused) { audio.load(); } // jump back to the live edge instead of resuming stale buffer
+    audio.play().catch(() => {});
   }
-  pause() { this.engine === 'yt' ? yt.player?.pauseVideo() : audio.pause(); }
+  pause() { audio.pause(); }
   toggle() { this.paused ? this.play() : this.pause(); }
 
   /* ---- queue ---- */
@@ -140,16 +111,17 @@ export const player = new (class extends EventTarget {
 
   async next(auto = false) {
     if (!this.current) return;
-    if (auto && this.repeat === 2) { this.seek(0); this.play(); return; }
+    if (auto && this.repeat === 2 && !this.live) { this.seek(0); this.play(); return; }
     if (this.manual.length) return this._load(this.manual.shift());
     const c = this.ctx;
     if (c.pos + 1 < c.order.length) { c.pos++; return this._load(c.tracks[c.order[c.pos]]); }
-    if (this.repeat === 1 && c.tracks.length) { if (this.shuffle) { c.pos = -1; this._shuffleOrder(); } c.pos = 0; return this._load(c.tracks[c.order[0]]); }
-    if (lib.settings.autoplay && await this._autoplay()) return;
-    if (auto) { this.pause(); this.seek(0); } else if (c.tracks.length) { c.pos = 0; this._load(c.tracks[c.order[0]]); }
+    if ((this.repeat === 1 || this.live) && c.tracks.length > 1) { if (this.shuffle) { c.pos = -1; this._shuffleOrder(); } c.pos = 0; return this._load(c.tracks[c.order[0]]); }
+    if (!this.live && lib.settings.autoplay && await this._autoplay()) return;
+    if (auto) { this.pause(); if (!this.live) this.seek(0); } else if (c.tracks.length) { c.pos = 0; this._load(c.tracks[c.order[0]]); }
   }
   prev() {
-    if (this.time > 3 || this.ctx.pos <= 0) return this.seek(0);
+    if (!this.live && (this.time > 3 || this.ctx.pos <= 0)) return this.seek(0);
+    if (this.ctx.pos <= 0) return;
     this.ctx.pos--; this._load(this.ctx.tracks[this.ctx.order[this.ctx.pos]]);
   }
   async _autoplay() {
@@ -159,10 +131,10 @@ export const player = new (class extends EventTarget {
       if (!artistId) { const r = await deezer.search(`${seed.artist} ${seed.title}`, 1); artistId = r[0]?.artistId; }
       if (!artistId) return false;
       const played = new Set([...lib.recent.slice(0, 30), ...this.ctx.tracks].map(t => t.id));
-      const radio = (await deezer.artistRadio(artistId)).filter(t => !played.has(t.id));
-      if (!radio.length) return false;
+      const list = (await deezer.artistRadio(artistId)).filter(t => !played.has(t.id));
+      if (!list.length) return false;
       toast('Reproducción automática: canciones parecidas');
-      this.playList(radio, 0, { label: `Radio de ${seed.artist}`, href: `#/artista/${artistId}` });
+      this.playList(list, 0, { label: `Radio de ${seed.artist}`, href: `#/artista/${artistId}` });
       return true;
     } catch { return false; }
   }
@@ -175,7 +147,7 @@ export const player = new (class extends EventTarget {
   async _load(t) {
     if (!t) return;
     const token = ++this._token;
-    this.current = t; this.loading = true; this.mode = ''; this.reason = '';
+    this.current = t; this.loading = true; this.mode = ''; this._retries = 0;
     this._emit('track'); this._emit('queue'); this._emit('state');
     lib.pushRecent(t); cloud.logPlay(t);
     try {
@@ -183,31 +155,33 @@ export const player = new (class extends EventTarget {
         const blob = await idb.get(t.id); if (!blob) throw new Error('Archivo no encontrado en este dispositivo');
         if (this._blob) URL.revokeObjectURL(this._blob);
         this._blob = URL.createObjectURL(blob);
-        return this._playAudio(this._blob, 'full', token);
+        return await this._play(this._blob, 'full', token);
       }
-      if (t.src === 'audius' || t.full) return this._playAudio(t.url, 'full', token);
-      const r = await cloud.resolve(t);
+      if (t.src === 'radio') {
+        let url = t.url;
+        if (!url) { const s = await radio.byUuid(t.id); if (!s) throw new Error('Esta emisora ya no está disponible'); url = t.url = s.url; }
+        radio.click(t.id);
+        return await this._play(url, 'live', token);
+      }
+      if (t.full && t.url) return await this._play(t.url, 'full', token);
+      // catalog track: use the artist's own full upload when it exists, otherwise the 30 s preview
+      const full = await findFull(t);
       if (token !== this._token) return;
-      if (r.videoId) return this._playYT(r.videoId, token);
-      this.reason = r.error || 'network';
-      if (!this._hinted || r.error === 'quota' || r.error === 'rate_limited') { this._hinted = true; this._emit('hint', this.reason); }
-      return this._playPreview(t, token);
+      if (full) return await this._play(full.url, 'full', token);
+      if (!this._hinted) { this._hinted = true; this._emit('hint', 'preview'); }
+      let url = '';
+      try { url = await deezer.freshPreview(t.dz); } catch { url = t.preview; }
+      if (token !== this._token) return;
+      if (!url) throw new Error(`«${t.title}» no tiene audio disponible`);
+      return await this._play(url, 'preview', token);
     } catch (e) {
       if (token !== this._token) return;
       this.loading = false; this._emit('state');
       toast(e.message || 'Error de reproducción'); setTimeout(() => token === this._token && this.next(true), 1200);
     }
   }
-  async _playPreview(t, token) {
-    let url = '';
-    try { url = await deezer.freshPreview(t.dz); } catch { url = t.preview; }
-    if (token !== this._token) return;
-    if (!url) throw new Error(`«${t.title}» no tiene audio disponible`);
-    return this._playAudio(url, 'preview', token);
-  }
-  async _playAudio(url, mode, token) {
-    if (this.engine === 'yt') { yt.player?.stopVideo?.(); this._ytPlaying = false; }
-    this.engine = 'audio'; this.mode = mode; this._emit('engine');
+  async _play(url, mode, token) {
+    this.mode = mode; this._emit('engine');
     audio.src = url;
     try { await audio.play(); }
     catch (e) {
@@ -215,20 +189,6 @@ export const player = new (class extends EventTarget {
       if (e.name !== 'AbortError') throw e;
     }
     if (token === this._token) { this.loading = false; this._emit('state'); }
-  }
-  async _playYT(vid, token) {
-    audio.pause(); audio.removeAttribute('src'); audio.load();
-    this.engine = 'yt'; this.mode = 'yt'; this._emit('engine');
-    try {
-      const p = await yt.load();
-      if (token !== this._token) return;
-      this._applyVolume();
-      p.loadVideoById(vid);
-    } catch (e) {
-      if (token !== this._token) return;
-      toast(e.message + ' · usando vista previa'); this.reason = 'unavailable';
-      this._playPreview(this.current, token);
-    }
   }
 
   /* ---- sleep timer ---- */
@@ -245,18 +205,25 @@ export const player = new (class extends EventTarget {
   _mediaSession() {
     if (!('mediaSession' in navigator)) return;
     const ms = navigator.mediaSession;
-    [['play', () => this.play()], ['pause', () => this.pause()], ['stop', () => this.pause()],
-     ['previoustrack', () => this.prev()], ['nexttrack', () => this.next()],
-     ['seekto', e => this.seek(e.seekTime)], ['seekbackward', e => this.seek(this.time - (e.seekOffset || 10))], ['seekforward', e => this.seek(this.time + (e.seekOffset || 10))]
-    ].forEach(([a, h]) => { try { ms.setActionHandler(a, h); } catch { /* unsupported on this platform */ } });
+    const handlers = {
+      play: () => this.play(), pause: () => this.pause(), stop: () => this.pause(),
+      previoustrack: () => this.prev(), nexttrack: () => this.next(),
+      seekto: e => this.seek(e.seekTime), seekbackward: e => this.seek(this.time - (e.seekOffset || 10)), seekforward: e => this.seek(this.time + (e.seekOffset || 10))
+    };
+    const setHandlers = live => Object.entries(handlers).forEach(([a, h]) => {
+      try { ms.setActionHandler(a, live && a.startsWith('seek') ? null : h); } catch { /* unsupported on this platform */ }
+    });
+    setHandlers(false);
     const art = t => {
       const base = t.cover || '';
       if (/dzcdn\.net\/images\/cover/.test(base)) return [96, 128, 256, 512, 1000].map(s => ({ src: base.replace(/\/\d+x\d+-/, `/${s}x${s}-`), sizes: `${s}x${s}`, type: 'image/jpeg' }));
-      return [base && { src: base, sizes: '480x480' }, t.coverXL && { src: t.coverXL, sizes: '1000x1000' }, { src: new URL('icons/icon-512.png', location.href).href, sizes: '512x512', type: 'image/png' }].filter(Boolean);
+      const fallback = { src: new URL('icons/icon-512.png', location.href).href, sizes: '512x512', type: 'image/png' };
+      return base ? [{ src: base, sizes: '300x300' }, ...(t.coverXL ? [{ src: t.coverXL, sizes: '1000x1000' }] : []), fallback] : [fallback];
     };
     this.addEventListener('track', () => {
       const t = this.current;
-      try { ms.metadata = new MediaMetadata({ title: t.title, artist: t.artist, album: t.album || 'Listentoo', artwork: art(t) }); } catch { /* */ }
+      try { ms.metadata = new MediaMetadata({ title: t.title, artist: t.live ? 'Radio en directo · Listentoo' : t.artist, album: t.live ? t.artist : (t.album || 'Listentoo'), artwork: art(t) }); } catch { /* */ }
+      setHandlers(!!t.live);
     });
     this.addEventListener('state', () => { ms.playbackState = this.paused ? 'paused' : 'playing'; });
     this.addEventListener('time', () => {

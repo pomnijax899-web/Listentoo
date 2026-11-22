@@ -17,9 +17,9 @@ const routes = {
   inicio: () => V.home(), explorar: (p, q) => V.explore(q.get('q') || ''), mood: p => V.mood(p[1]), top: () => V.top(0), genero: p => V.genre(p[1]),
   artista: p => V.artist(p[1]), album: p => V.album(p[1]), lista: p => V.dzplaylist(p[1]), playlist: p => V.playlist(p[1]), p: p => V.shared(p[1]),
   megusta: () => V.liked(), biblioteca: () => V.library(), cola: () => V.queue(),
-  cuenta: p => V.account(p[1] === 'registro' ? 'registro' : 'entrar'), perfil: () => V.profile(), temas: () => V.themes(), admin: () => V.admin()
+  cuenta: p => V.account(p[1] === 'registro' ? 'registro' : 'entrar'), perfil: () => V.profile(), temas: () => V.themes(), admin: () => V.admin(), radio: p => V.radioPage(decodeURIComponent(p[1] || ''))
 };
-const NAV = { inicio: 'inicio', explorar: 'explorar', mood: 'explorar', top: 'explorar', genero: 'explorar', biblioteca: 'biblioteca', megusta: 'biblioteca', playlist: 'biblioteca', cola: 'biblioteca', temas: 'temas', perfil: 'perfil', cuenta: 'perfil', admin: 'perfil' };
+const NAV = { radio: 'radio', inicio: 'inicio', explorar: 'explorar', mood: 'explorar', top: 'explorar', genero: 'explorar', biblioteca: 'biblioteca', megusta: 'biblioteca', playlist: 'biblioteca', cola: 'biblioteca', temas: 'perfil', perfil: 'perfil', cuenta: 'perfil', admin: 'perfil' };
 let lastKey = '';
 function route() {
   const [path, qs] = (location.hash.slice(1) || '/inicio').split('?');
@@ -40,6 +40,7 @@ function route() {
 }
 addEventListener('hashchange', route);
 $('#back').onclick = () => history.back();
+$('#themeBtn').onclick = () => { location.hash = '#/temas'; };
 $('#fwd').onclick = () => history.forward();
 $('#main').addEventListener('scroll', () => { document.body.classList.toggle('scrolled', $('#main').scrollTop > 12); hideMenu(); }, { passive: true });
 
@@ -58,7 +59,7 @@ function moveDockGlow() {
   if (!a) { g.style.opacity = 0; return; }
   g.style.opacity = 1; g.style.width = a.offsetWidth + 'px'; g.style.transform = `translateX(${a.offsetLeft}px)`;
 }
-addEventListener('resize', () => { moveDockGlow(); placeYT(); });
+addEventListener('resize', moveDockGlow);
 
 /* ================= ACCOUNT STATE ================= */
 function renderAccount() {
@@ -76,6 +77,7 @@ cloud.addEventListener('auth', () => {
   if (['cuenta', 'perfil', 'admin', 'inicio', 'biblioteca', 'megusta', 'playlist'].includes(r)) route();
 });
 cloud.addEventListener('announcement', () => { if (document.body.dataset.route === 'inicio') V.home(); });
+cloud.addEventListener('sources', () => { if (['inicio', 'explorar'].includes(document.body.dataset.route)) route(); });
 cloud.addEventListener('recovery', () => { if (!document.body.classList.contains('ready')) return; location.hash = '#/perfil'; V.changePassword(true); });
 lib.addEventListener('change', e => {
   const r = document.body.dataset.route, d = e.detail;
@@ -184,7 +186,8 @@ function renderTrack() {
   $('#island').dataset.state = 'track';
   const marquee = $('#isTitle'); marquee.parentElement.classList.toggle('scroll', marquee.scrollWidth > marquee.parentElement.clientWidth + 4);
   refreshLikes();
-  $$('.trow').forEach(r => r.classList.toggle('playing', r.dataset.id === t.id));
+  $$('.trow, .scard').forEach(r => r.classList.toggle('playing', r.dataset.id === t.id));
+  document.body.classList.toggle('live-on', !!t.live);
   setCover(t.cover);
   loadLyrics(t);
   renderNext();
@@ -205,6 +208,11 @@ function renderState() {
   $$('[data-kind][data-id]').forEach(c => { const href = c.getAttribute('href'); const on = !!href && player.ctx.href === href && !p; c.classList.toggle('active-play', on); const f = c.querySelector('.fab'); if (f && c.dataset.kind) f.innerHTML = on ? icons.pause : icons.play; });
 }
 function renderTime() {
+  if (player.live) {
+    $$('[data-cur]').forEach(x => { x.textContent = ''; }); $$('[data-dur]').forEach(x => { x.textContent = ''; });
+    seekSliders.forEach(({ el }) => setP(el, 1)); paintRing(1); $('#island').style.setProperty('--prog', 1);
+    return;
+  }
   const d = player.duration, t = player.time, v = d ? Math.min(1, t / d) : 0;
   seekSliders.forEach(({ el, s }) => { if (!s.drag) setP(el, v); });
   if (!ringDrag) paintRing(v);
@@ -218,14 +226,10 @@ function renderMode() {
   ['#isRepeat', '#orRepeat'].forEach(s => { const b = $(s); b.innerHTML = player.repeat === 2 ? icons.repeat1 : icons.repeat; b.classList.toggle('on', player.repeat > 0); b.title = ['Repetir', 'Repetir todo', 'Repetir canción'][player.repeat]; });
   $$('[data-hero="shuffle"]').forEach(b => b.classList.toggle('on', player.shuffle));
 }
-const MODE_TXT = { preview: 'Vista previa · 30 s', yt: 'Completa', full: 'Completa' };
+const MODE_TXT = { preview: 'Vista previa · 30 s', full: 'Completa', live: 'En directo' };
 function renderEngine() {
   const m = player.mode;
   $$('[data-mode-badge]').forEach(b => { b.textContent = MODE_TXT[m] || ''; b.dataset.m = m; b.hidden = !m; });
-  const yt = player.engine === 'yt';
-  $('#ytBubble').hidden = !yt;
-  document.body.classList.toggle('yt-on', yt);
-  placeYT();
 }
 function renderVolume() {
   const v = player.muted ? 0 : player.volume;
@@ -240,12 +244,10 @@ player.addEventListener('engine', () => { renderEngine(); renderTime(); });
 player.addEventListener('volume', renderVolume);
 player.addEventListener('queue', () => { renderNext(); if (document.body.dataset.route === 'cola') V.queue(); });
 player.addEventListener('sleep', () => $('#orSleep').classList.toggle('on', !!player.sleep));
-player.addEventListener('hint', e => {
-  const r = e.detail;
-  if (r === 'guest') toast('Estás escuchando vistas previas de 30 s. Entra para escuchar canciones completas.', { text: 'Entrar', run: () => { store.set('afterLogin', location.hash); location.hash = '#/cuenta'; } });
-  else if (r === 'not_configured') toast(cloud.isAdmin ? 'Reproducción completa desactivada: añade la clave en el panel de admin.' : 'De momento suenan vistas previas de 30 s.', cloud.isAdmin ? { text: 'Abrir panel', run: () => { location.hash = '#/admin'; } } : undefined);
-  else if (r === 'quota') toast('Hoy se ha agotado el cupo de canciones nuevas completas. Las ya escuchadas siguen completas.');
-  else if (r === 'rate_limited') toast('Has llegado al límite diario de canciones nuevas completas.');
+player.addEventListener('hint', () => {
+  if (store.get('previewHint', 0) >= 2) return;
+  store.set('previewHint', store.get('previewHint', 0) + 1);
+  toast('Esta canción solo está disponible como vista previa de 30 s. En Radio tienes música completa en directo.', { text: 'Abrir radio', run: () => { location.hash = '#/radio'; } });
 });
 
 const on = (ids, fn) => ids.forEach(s => { $(s).onclick = e => { e.stopPropagation(); fn(e); }; });
@@ -284,11 +286,11 @@ const orbitOpen = () => $('#orbit').classList.contains('open');
 function openOrbit() {
   if (!player.current) return;
   const o = $('#orbit'); o.hidden = false;
-  requestAnimationFrame(() => { o.classList.add('open'); document.body.classList.add('orbit-open'); placeYT(); });
+  requestAnimationFrame(() => { o.classList.add('open'); document.body.classList.add('orbit-open'); });
 }
 function closeOrbit() {
   const o = $('#orbit'); o.classList.remove('open'); document.body.classList.remove('orbit-open');
-  setTimeout(() => { if (!orbitOpen()) o.hidden = true; placeYT(); }, 380); placeYT();
+  setTimeout(() => { if (!orbitOpen()) o.hidden = true; }, 380);
 }
 $('#orClose').onclick = closeOrbit;
 $('#orCtx').onclick = () => closeOrbit();
@@ -308,23 +310,11 @@ function renderNext() {
 }
 $('#orNextList').onclick = e => { const b = e.target.closest('[data-ni]'); if (!b) return; const i = +b.dataset.ni; i < player.manual.length ? player.jumpManual(i) : player.jumpUpcoming(i - player.manual.length); };
 
-/* YouTube player placement: the official player must stay visible (min 200x200 px) */
-function placeYT() {
-  const b = $('#ytBubble');
-  if (b.hidden) return;
-  if (orbitOpen()) {
-    const r = $('#orVideo').getBoundingClientRect();
-    Object.assign(b.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px', right: 'auto', bottom: 'auto' });
-    b.classList.add('in-orbit');
-  } else { b.removeAttribute('style'); b.classList.remove('in-orbit'); }
-}
-$('#ybMove').onclick = () => { $('#ytBubble').classList.toggle('alt'); };
-$('#ybOpen').onclick = () => openOrbit();
-
 /* ================= LYRICS ================= */
 let lyr = null, lyrIdx = -1;
 async function loadLyrics(t) {
   lyr = null; lyrIdx = -1;
+  if (t.live) { $('#orLyrics').innerHTML = `<div class="lyr-msg">📻 Radio en directo${t.country ? ' desde ' + esc(t.country) : ''}.<br><small>Las emisoras no comparten la letra de lo que suena.</small></div>`; return; }
   $('#orLyrics').innerHTML = '<div class="lyr-msg">Buscando la letra…</div>';
   try { lyr = await fetchLyrics(t); } catch { lyr = null; }
   if (player.current !== t) return;
