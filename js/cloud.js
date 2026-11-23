@@ -44,6 +44,8 @@ export const cloud = new (class extends EventTarget {
   }
   emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail })); }
   get signedIn() { return !!this.user; }
+  get plan() { return this.isAdmin ? 'admin' : (this.profile?.plan || 'free'); }
+  get card() { return { name: this.profile?.display_name || this.user?.email || '?', hue: this.profile?.avatar_hue ?? 275, url: this.profile?.avatar_url || '', plan: this.profile?.plan || 'free', admin: this.isAdmin }; }
 
   async init() {
     await getSb();
@@ -251,6 +253,96 @@ export const cloud = new (class extends EventTarget {
   }
   forgetVideo(t) { const map = store.get('ytmap2', {}); delete map[t.id]; store.set('ytmap2', map); }
 
+  /* ---------------- plans & 24 h usage ---------------- */
+  async trackUsage(seconds = 0, skip = false) {
+    await getSb();
+    const { data, error } = await sb.rpc('track_usage', { p_seconds: Math.round(seconds), p_skip: !!skip });
+    if (error) throw new Error(friendly(error));
+    return data;
+  }
+  async myRequest() {
+    await getSb(); if (!this.user) return null;
+    const { data } = await sb.from('plan_requests').select('*').eq('user_id', this.user.id).eq('status', 'pending').maybeSingle();
+    return data;
+  }
+  async requestPlan(plan, note = '') {
+    await getSb();
+    const { error } = await sb.from('plan_requests').insert({ plan, note: note.slice(0, 300) });
+    if (error) throw new Error(error.code === '23505' ? 'Ya tienes una solicitud pendiente.' : friendly(error));
+  }
+  async cancelRequest(id) { await getSb(); const { error } = await sb.from('plan_requests').delete().eq('id', id); if (error) throw new Error(friendly(error)); }
+
+  /* ---------------- profile photo (Max, Ultra, admin) ---------------- */
+  async uploadAvatar(blob) {
+    await getSb();
+    const path = `${this.user.id}/avatar.webp`;
+    const { error } = await sb.storage.from('avatars').upload(path, blob, { upsert: true, contentType: blob.type || 'image/webp', cacheControl: '3600' });
+    if (error) throw new Error(/row-level|security|policy/i.test(error.message) ? 'Tu plan no permite foto de perfil.' : friendly(error));
+    const url = sb.storage.from('avatars').getPublicUrl(path).data.publicUrl + '?v=' + Date.now();
+    await this.updateProfile({ avatar_url: url });
+  }
+  async removeAvatar() { await this.updateProfile({ avatar_url: null }); }
+
+  /* ---------------- Ultra uploads ---------------- */
+  uploadToTrack(r, owner) {
+    return { id: 'up:' + r.id, uploadId: r.id, src: 'upload', full: true, path: r.path, title: r.title, artist: r.artist || owner || 'Subida', album: 'Subidas',
+      cover: r.cover_url || '', coverXL: r.cover_url || '', dur: r.duration || 0, isPublic: r.is_public !== false, owner: r.uploader || owner || '', ownerId: r.user_id || null,
+      ownerPlan: r.uploader_plan || this.profile?.plan, ownerAdmin: r.uploader_admin ?? (r.user_id === this.user?.id && this.isAdmin), ownerAvatar: r.uploader_avatar ?? (r.user_id === this.user?.id ? this.profile?.avatar_url : ''), ownerHue: r.uploader_hue ?? this.profile?.avatar_hue ?? 275 };
+  }
+  async myUploads() {
+    await getSb(); if (!this.user) return [];
+    const { data, error } = await sb.from('user_tracks').select('*').eq('user_id', this.user.id).order('created_at', { ascending: false });
+    if (error) throw new Error(friendly(error));
+    return data.map(r => this.uploadToTrack(r, this.profile?.display_name));
+  }
+  async publicUploads(q = null, limit = 40) {
+    await getSb();
+    const { data } = await sb.rpc('public_uploads', { p_limit: limit, p_query: q || null });
+    return (data || []).map(r => this.uploadToTrack(r));
+  }
+  async uploadById(id) {
+    await getSb();
+    const { data } = await sb.from('user_tracks').select('*').eq('id', id).maybeSingle();
+    return data ? this.uploadToTrack(data) : null;
+  }
+  async uploadTrack(file, { title, artist, isPublic, cover, duration }, onProgress) {
+    await getSb();
+    const id = uuid(), ext = (file.name.split('.').pop() || 'mp3').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 5) || 'mp3';
+    const path = `${this.user.id}/${id}.${ext}`;
+    onProgress?.(0.1);
+    const up = await sb.storage.from('user-audio').upload(path, file, { contentType: file.type || 'audio/mpeg', cacheControl: '86400' });
+    if (up.error) throw new Error(/row-level|security|policy/i.test(up.error.message) ? 'Solo el plan Ultra puede subir canciones.' : /size|large/i.test(up.error.message) ? 'El archivo supera los 50 MB.' : friendly(up.error));
+    onProgress?.(0.8);
+    let cover_url = null;
+    if (cover) {
+      const cp = `${this.user.id}/covers/${id}.webp`;
+      const c = await sb.storage.from('avatars').upload(cp, cover, { upsert: true, contentType: cover.type || 'image/webp' });
+      if (!c.error) cover_url = sb.storage.from('avatars').getPublicUrl(cp).data.publicUrl;
+    }
+    const { data, error } = await sb.from('user_tracks').insert({ id, title: title.slice(0, 120), artist: (artist || '').slice(0, 120), path, cover_url, duration: duration || 0, is_public: !!isPublic }).select().single();
+    if (error) { await sb.storage.from('user-audio').remove([path]); throw new Error(friendly(error)); }
+    onProgress?.(1);
+    return this.uploadToTrack(data, this.profile?.display_name);
+  }
+  async updateUpload(id, patch) {
+    await getSb();
+    const { error } = await sb.from('user_tracks').update(patch).eq('id', id);
+    if (error) throw new Error(friendly(error));
+  }
+  async deleteUpload(t) {
+    await getSb();
+    await sb.storage.from('user-audio').remove([t.path]).catch(() => {});
+    if (t.cover && t.cover.includes('/covers/')) await sb.storage.from('avatars').remove([`${this.user.id}/covers/${t.uploadId}.webp`]).catch(() => {});
+    const { error } = await sb.from('user_tracks').delete().eq('id', t.uploadId);
+    if (error) throw new Error(friendly(error));
+  }
+  async signedUrl(path) {
+    await getSb();
+    const { data, error } = await sb.storage.from('user-audio').createSignedUrl(path, 4 * 3600);
+    if (error || !data?.signedUrl) throw new Error('Esta canción ya no está disponible');
+    return data.signedUrl;
+  }
+
   /* ---------------- announcements ---------------- */
   async loadAnnouncement() {
     await getSb();
@@ -271,6 +363,9 @@ export const cloud = new (class extends EventTarget {
     setYoutubeKey: async key => { await getSb(); const { error } = await sb.rpc('admin_set_secret', { p_key: 'youtube_api_key', p_value: key }); if (error) throw new Error(friendly(error)); },
     setJamendo: async clientId => { await getSb(); const { error } = clientId ? await sb.from('app_config').upsert({ key: 'jamendo', value: { client_id: clientId } }) : await sb.from('app_config').delete().eq('key', 'jamendo'); if (error) throw new Error(friendly(error)); await this.loadAnnouncement(); },
     setAnnouncement: async value => { await getSb(); const { error } = await sb.from('app_config').upsert({ key: 'announcement', value }); if (error) throw new Error(friendly(error)); },
+    setPlan: async (userId, plan) => { await getSb(); const { error } = await sb.rpc('admin_set_plan', { p_user: userId, p_plan: plan }); if (error) throw new Error(friendly(error)); if (userId === this.user?.id) { this.profile.plan = plan; this.emit('auth'); } },
+    requests: async () => { await getSb(); const { data, error } = await sb.from('plan_requests').select('*').eq('status', 'pending').order('created_at'); if (error) throw new Error(friendly(error)); return data; },
+    rejectRequest: async id => { await getSb(); const { error } = await sb.rpc('admin_reject_request', { p_id: id }); if (error) throw new Error(friendly(error)); },
     getAnnouncement: async () => { await getSb(); const { data } = await sb.from('app_config').select('value').eq('key', 'announcement').maybeSingle(); return data?.value || { text: '', active: false, tone: 'info' }; }
   };
 })();

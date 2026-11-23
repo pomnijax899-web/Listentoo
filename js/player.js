@@ -9,6 +9,7 @@ import { store, idb, toast } from './util.js';
 import { deezer, findFull, radio } from './api.js';
 import { lib } from './library.js';
 import { cloud } from './cloud.js';
+import { quota } from './plans.js';
 
 const audio = new Audio();
 audio.preload = 'auto';
@@ -93,7 +94,13 @@ export const player = new (class extends EventTarget {
       this._emit('state');
     };
     yt.onError = code => this._ytFailed(code);
-    setInterval(() => { if (!this.paused) { this._emit('time'); this._checkSleep(); } }, 250);
+    let lastTick = performance.now();
+    setInterval(() => {
+      const now = performance.now(), dt = Math.min(1, (now - lastTick) / 1000); lastTick = now;
+      if (this.paused) return;
+      this._emit('time'); this._checkSleep();
+      if (!this.loading && !quota.tick(dt)) { this.pause(); this._emit('limit', 'time'); } // plan's daily listening time used up
+    }, 250);
     this._mediaSession();
   }
   _emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail })); }
@@ -120,6 +127,7 @@ export const player = new (class extends EventTarget {
   }
   toggleMute() { this.muted = !this.muted; this._applyVolume(); this._emit('volume'); }
   play() {
+    if (quota.exhausted) { this._emit('limit', 'time'); return; }
     if (!this.current) { const seed = lib.recent.length ? lib.recent : lib.liked; if (seed.length) this.playList(seed, 0, { label: 'Escuchado recientemente' }); return; }
     if (this.engine === 'yt') { yt.player?.playVideo?.(); this._armTapCheck(this._token); return; }
     if (this.live && audio.paused) { audio.load(); } // jump back to the live edge instead of resuming stale buffer
@@ -162,11 +170,16 @@ export const player = new (class extends EventTarget {
   playNext(t) { if (!this.current) return this.playList([t]); this.manual.unshift(t); this._emit('queue'); toast('Sonará a continuación'); }
   removeManual(i) { this.manual.splice(i, 1); this._emit('queue'); }
   clearManual() { this.manual = []; this._emit('queue'); }
-  jumpManual(i) { const [t] = this.manual.splice(i, 1); this.manual.splice(0, i); this._load(t); }
-  jumpUpcoming(i) { this.ctx.pos += i + 1; this._load(this.ctx.tracks[this.ctx.order[this.ctx.pos]]); }
+  async jumpManual(i) { if (!await this._skipAllowed()) return; const [t] = this.manual.splice(i, 1); this.manual.splice(0, i); this._load(t); }
+  async jumpUpcoming(i) { if (!await this._skipAllowed()) return; this.ctx.pos += i + 1; this._load(this.ctx.tracks[this.ctx.order[this.ctx.pos]]); }
+  async _skipAllowed() {
+    if (await quota.trySkip()) return true;
+    this._emit('limit', 'skips'); return false;
+  }
 
   async next(auto = false) {
     if (!this.current) return;
+    if (!auto && !await this._skipAllowed()) return; // manual skips count against the plan
     if (auto && this.repeat === 2 && !this.live) { this.seek(0); this.play(); return; }
     if (this.manual.length) return this._load(this.manual.shift());
     const c = this.ctx;
@@ -206,6 +219,7 @@ export const player = new (class extends EventTarget {
     this.current = t; this.loading = true; this.mode = ''; this.reason = ''; this._retries = 0; this._ytTried = [];
     this._setNeedsTap(false);
     this._emit('track'); this._emit('queue'); this._emit('state');
+    if (quota.exhausted) { this._stopYT(); audio.pause(); this.loading = false; this._emit('state'); this._emit('limit', 'time'); return; }
     lib.pushRecent(t); cloud.logPlay(t);
     try {
       if (t.src === 'local') {
@@ -219,6 +233,13 @@ export const player = new (class extends EventTarget {
         if (!url) { const s = await radio.byUuid(t.id); if (!s) throw new Error('Esta emisora ya no está disponible'); url = t.url = s.url; }
         radio.click(t.id);
         return await this._play(url, 'live', token);
+      }
+      if (t.src === 'upload') {
+        let path = t.path;
+        if (!path) { const u = await cloud.uploadById(t.uploadId || t.id.slice(3)); if (!u) throw new Error('Esta subida ya no está disponible'); path = t.path = u.path; }
+        const url = await cloud.signedUrl(path);
+        if (token !== this._token) return;
+        return await this._play(url, 'full', token);
       }
       if (t.full && t.url) return await this._play(t.url, 'full', token);
       // catalog song: 1) the artist's own full upload (native audio)  2) official YouTube player  3) 30 s preview

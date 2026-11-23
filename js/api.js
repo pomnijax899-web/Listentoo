@@ -117,7 +117,7 @@ export async function lyrics(t) {
       const lines = [];
       for (const ln of j.syncedLyrics.split('\n')) {
         const m = ln.match(/^\[(\d+):(\d+(?:\.\d+)?)\]\s*(.*)$/);
-        if (m) lines.push({ t: +m[1] * 60 + +m[2], text: m[3] || '♪' });
+        if (m) lines.push({ t: +m[1] * 60 + +m[2], text: m[3] || '' });
       }
       return { synced: true, lines };
     }
@@ -221,20 +221,21 @@ export function trackFromRef(r) {
   if (id.startsWith('dz:')) return { id, src: 'deezer', dz: +id.slice(3), title: r.title, artist: r.artist, cover: r.cover || '', coverXL: (r.cover || '').replace(/\/\d+x\d+-/, '/1000x1000-'), dur: 0 };
   if (id.startsWith('au:')) return { id, src: 'audius', title: r.title, artist: r.artist, cover: r.cover || '', coverXL: r.cover || '', dur: 0, url: `${AUD}/tracks/${id.slice(3)}/stream?app_name=${APP}`, full: true };
   if (id.startsWith('rd:')) return { id, src: 'radio', live: true, full: true, title: r.title, artist: r.artist, album: 'Radio en directo', cover: r.cover || '', dur: 0 };
+  if (id.startsWith('up:')) return { id, src: 'upload', uploadId: id.slice(3), full: true, title: r.title, artist: r.artist, album: 'Subidas', cover: r.cover || '', dur: 0 };
   if (id.startsWith('jm:')) return { id, src: 'jamendo', full: true, title: r.title, artist: r.artist, cover: r.cover || '', dur: 0, url: `https://prod-1.storage.jamendo.com/?trackid=${id.slice(3)}&format=mp32` };
   return null;
 }
 
 /* ---------------- moods ---------------- */
 export const MOODS = [
-  { id: 'energia', name: 'Energía', icon: '⚡', q: 'workout', tag: 'dance', c: ['#ff7a18', '#ff2d55'] },
-  { id: 'calma', name: 'Calma', icon: '🌙', q: 'chill', tag: 'chillout', c: ['#3a7bd5', '#6dd5ed'] },
-  { id: 'fiesta', name: 'Fiesta', icon: '🪩', q: 'party hits', tag: 'party', c: ['#f953c6', '#b91d73'] },
-  { id: 'enfoque', name: 'Enfoque', icon: '🎧', q: 'focus', tag: 'lofi', c: ['#11998e', '#38ef7d'] },
-  { id: 'romance', name: 'Romance', icon: '💜', q: 'love songs', tag: 'romantic', c: ['#c471f5', '#fa71cd'] },
-  { id: 'nostalgia', name: 'Nostalgia', icon: '📼', q: '80s hits', tag: '80s', c: ['#f7971e', '#ffd200'] },
-  { id: 'latino', name: 'Latino', icon: '🔥', q: 'reggaeton', tag: 'reggaeton', c: ['#ee0979', '#ff6a00'] },
-  { id: 'lluvia', name: 'Día de lluvia', icon: '🌧️', q: 'rainy day', tag: 'jazz', c: ['#536976', '#292e49'] },
-  { id: 'indie', name: 'Indie', icon: '🌿', q: 'indie', tag: 'indie', c: ['#56ab2f', '#a8e063'] },
-  { id: 'dormir', name: 'Dormir', icon: '😴', q: 'sleep', tag: 'ambient', c: ['#141e30', '#243b55'] }
+  { id: 'energia', name: 'Energía', icon: 'bolt', q: 'workout', tag: 'dance', c: ['#ff7a18', '#ff2d55'] },
+  { id: 'calma', name: 'Calma', icon: 'crescent', q: 'chill', tag: 'chillout', c: ['#3a7bd5', '#6dd5ed'] },
+  { id: 'fiesta', name: 'Fiesta', icon: 'disco', q: 'party hits', tag: 'party', c: ['#f953c6', '#b91d73'] },
+  { id: 'enfoque', name: 'Enfoque', icon: 'headphones', q: 'focus', tag: 'lofi', c: ['#11998e', '#38ef7d'] },
+  { id: 'romance', name: 'Romance', icon: 'hearts', q: 'love songs', tag: 'romantic', c: ['#c471f5', '#fa71cd'] },
+  { id: 'nostalgia', name: 'Nostalgia', icon: 'cassette', q: '80s hits', tag: '80s', c: ['#f7971e', '#ffd200'] },
+  { id: 'latino', name: 'Latino', icon: 'flame', q: 'reggaeton', tag: 'reggaeton', c: ['#ee0979', '#ff6a00'] },
+  { id: 'lluvia', name: 'Día de lluvia', icon: 'rain', q: 'rainy day', tag: 'jazz', c: ['#536976', '#292e49'] },
+  { id: 'indie', name: 'Indie', icon: 'leaf', q: 'indie', tag: 'indie', c: ['#56ab2f', '#a8e063'] },
+  { id: 'dormir', name: 'Dormir', icon: 'sleep', q: 'sleep', tag: 'ambient', c: ['#141e30', '#243b55'] }
 ];
