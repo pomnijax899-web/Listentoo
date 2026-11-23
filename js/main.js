@@ -161,7 +161,7 @@ cloud.addEventListener('recovery', () => { if (!document.body.classList.contains
 lib.addEventListener('change', e => {
   const r = document.body.dataset.route, d = e.detail;
   if (d === 'liked' || d === 'all') refreshLikes();
-  if (d === 'settings' || d === 'all') applyTheme();
+  if (d === 'settings' || d === 'all') { applyTheme(); renderEngine(); }
   if ((d === 'playlists' || d === 'all') && r === 'playlist') route();
   if ((d === 'liked' || d === 'all') && r === 'megusta') route();
   if (['local', 'playlists', 'albums', 'artists', 'dzplaylists', 'all'].includes(d) && r === 'biblioteca') route();
@@ -311,17 +311,19 @@ const MODE_TXT = { preview: 'Vista previa · 30 s', full: 'Completa', live: 'En 
 function renderEngine() {
   const m = player.mode;
   $$('[data-mode-badge]').forEach(b => { b.textContent = MODE_TXT[m] || ''; b.dataset.m = m === 'yt' ? 'full' : m; b.hidden = !m; });
-  const yt = player.engine === 'yt';
+  const yt = player.engine === 'yt', video = yt && !!lib.settings.ytVideo;
   $('#holo').hidden = !yt;
   fx.hold(yt);
-  document.body.classList.toggle('yt-on', yt);
+  document.body.classList.toggle('yt-on', video);            // video visible: floating screen / Orbit stage
+  document.body.classList.toggle('yt-audio', yt && !video);  // audio only: the player stays out of sight, the cover art shows
   placeHolo();
 }
-/* The official YouTube player must stay visible while it plays: a floating holo screen, or inside the Orbit stage */
+/* With "show video" on, the YouTube player floats on screen or fills the Orbit stage.
+   In audio-only mode it stays invisible, and only surfaces when the browser demands one tap to unmute (iOS). */
 function placeHolo() {
   const h = $('#holo');
   if (h.hidden) return;
-  if (orbitOpen()) {
+  if (orbitOpen() && document.body.classList.contains('yt-on')) {
     const r = $('#orScreen').getBoundingClientRect();
     Object.assign(h.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px', right: 'auto', bottom: 'auto' });
     h.classList.add('in-orbit');
@@ -331,7 +333,7 @@ addEventListener('resize', placeHolo, { passive: true });
 player.addEventListener('needtap', e => {
   $('#holo').classList.toggle('tap', e.detail);
   $('#holoTap').hidden = !e.detail;
-  if (e.detail && !orbitOpen() && $('#holo').hidden === false) toast('Toca el vídeo una vez para activar el sonido');
+  if (e.detail && $('#holo').hidden === false && (!orbitOpen() || document.body.classList.contains('yt-audio'))) toast('Toca el recuadro una vez para activar el sonido');
 });
 $('#holoOpen').onclick = () => openOrbit();
 $('#holoMove').onclick = () => { const h = $('#holo'), c = ((+h.dataset.corner || 0) + 1) % 4; h.dataset.corner = c; store.set('holoCorner', c); };
