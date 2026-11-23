@@ -8,7 +8,7 @@ export const slim = t => {
   return rest;
 };
 
-export const DEFAULT_SETTINGS = { theme: 'aurora', dynamic: true, motion: true, spin: true, autoplay: true, notify: false, effects: true, youtube: true };
+export const DEFAULT_SETTINGS = { theme: 'aurora', dynamic: true, motion: true, spin: true, autoplay: true, notify: false, effects: true, youtube: true, ytVideo: false };
 
 export const lib = new (class extends EventTarget {
   constructor() {

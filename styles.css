@@ -1181,3 +1181,10 @@ html.vt-circle::view-transition-old(page){animation:vtOut .35s var(--ease) both}
 @keyframes vtCircle{from{clip-path:circle(0 at var(--vx,50%) var(--vy,0%));filter:brightness(1.4)}to{clip-path:circle(150% at var(--vx,50%) var(--vy,0%));filter:none}}
 @media (prefers-reduced-motion:reduce){.av-ring,.av-crown,.plan-card::before,.locked-teaser::before,.burst,#spot{animation:none!important;display:revert}.burst{display:none}}
 .sheet a.pill{text-decoration:none}
+
+/* ---------- YouTube in audio-only mode: the player keeps running, out of sight ---------- */
+body.yt-audio #holo:not(.tap){left:0!important;right:auto!important;top:auto!important;bottom:0!important;width:200px;height:200px;border-radius:0;
+  opacity:.001;pointer-events:none;z-index:1;animation:none;transition:none;box-shadow:none}
+body.yt-audio #holo:not(.tap) .holo-head{display:none}
+body.yt-audio #holo.tap{z-index:80;animation:holoIn .5s var(--spring)}
+body.yt-audio #holo.tap .holo-head button{display:none}
