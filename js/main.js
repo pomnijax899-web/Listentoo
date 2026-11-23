@@ -7,7 +7,8 @@ import { cloud } from './cloud.js';
 import { lyrics as fetchLyrics, deezer } from './api.js';
 import { applyTheme, setCover } from './themes.js';
 import * as V from './views.js';
-import { icons, getList, trackMenu, showMenu, hideMenu, share, avatar } from './ui.js';
+import { icons, getList, trackMenu, showMenu, hideMenu, share, avatarOf, burst, modal } from './ui.js';
+import { quota, PLANS, fmtLeft } from './plans.js';
 import { fx, initPointerFx, reveal, initRing } from './fx.js';
 
 fx.init($('#nebula'));
@@ -20,9 +21,9 @@ const routes = {
   inicio: () => V.home(), explorar: (p, q) => V.explore(q.get('q') || ''), mood: p => V.mood(p[1]), top: () => V.top(0), genero: p => V.genre(p[1]),
   artista: p => V.artist(p[1]), album: p => V.album(p[1]), lista: p => V.dzplaylist(p[1]), playlist: p => V.playlist(p[1]), p: p => V.shared(p[1]),
   megusta: () => V.liked(), biblioteca: () => V.library(), cola: () => V.queue(),
-  cuenta: p => V.account(p[1] === 'registro' ? 'registro' : 'entrar'), perfil: () => V.profile(), temas: () => V.themes(), admin: () => V.admin(), radio: p => V.radioPage(decodeURIComponent(p[1] || ''))
+  cuenta: p => V.account(p[1] === 'registro' ? 'registro' : 'entrar'), perfil: () => V.profile(), temas: () => V.themes(), admin: () => V.admin(), planes: () => V.plansPage(), radio: p => V.radioPage(decodeURIComponent(p[1] || ''))
 };
-const NAV = { radio: 'radio', inicio: 'inicio', explorar: 'explorar', mood: 'explorar', top: 'explorar', genero: 'explorar', biblioteca: 'biblioteca', megusta: 'biblioteca', playlist: 'biblioteca', cola: 'biblioteca', temas: 'perfil', perfil: 'perfil', cuenta: 'perfil', admin: 'perfil' };
+const NAV = { radio: 'radio', inicio: 'inicio', explorar: 'explorar', mood: 'explorar', top: 'explorar', genero: 'explorar', biblioteca: 'biblioteca', megusta: 'biblioteca', playlist: 'biblioteca', cola: 'biblioteca', temas: 'perfil', planes: 'perfil', perfil: 'perfil', cuenta: 'perfil', admin: 'perfil' };
 let lastKey = '';
 function route() {
   const [path, qs] = (location.hash.slice(1) || '/inicio').split('?');
@@ -44,9 +45,39 @@ function route() {
     routes[name](parts, new URLSearchParams(qs || ''));
   };
   const fancy = !soft && document.documentElement.dataset.fx === 'on' && document.startViewTransition && document.body.classList.contains('ready');
-  if (fancy) document.startViewTransition(render);
+  if (fancy) {
+    // pages opened from a click unfold as a circle from that point
+    const html = document.documentElement, fromClick = performance.now() - lastTap.t < 700;
+    if (fromClick) { html.style.setProperty('--vx', lastTap.x + 'px'); html.style.setProperty('--vy', lastTap.y + 'px'); html.classList.add('vt-circle'); }
+    const vt = document.startViewTransition(render);
+    vt.finished.finally(() => html.classList.remove('vt-circle'));
+  }
   else { render(); if (!soft) { const v = $('#view'); v.classList.remove('enter'); void v.offsetWidth; v.classList.add('enter'); } }
 }
+/* ================= MOTION: tap point, ripples, cursor spotlight ================= */
+const lastTap = { x: 0, y: 0, t: -1e4 };
+document.addEventListener('pointerdown', e => {
+  lastTap.x = e.clientX; lastTap.y = e.clientY; lastTap.t = performance.now();
+  if (document.documentElement.dataset.fx !== 'on') return;
+  const b = e.target.closest('.pill, .chip, .fab');
+  if (!b || b.disabled) return;
+  const r = b.getBoundingClientRect(), dot = document.createElement('span');
+  dot.className = 'ripple'; dot.style.left = (e.clientX - r.left) + 'px'; dot.style.top = (e.clientY - r.top) + 'px';
+  dot.style.setProperty('--rs', (Math.max(r.width, r.height) / 5).toFixed(1));
+  if (getComputedStyle(b).position === 'static') b.style.position = 'relative';
+  b.appendChild(dot); setTimeout(() => dot.remove(), 650);
+}, { passive: true, capture: true });
+if (matchMedia('(hover: hover) and (pointer: fine)').matches) {
+  const spot = document.createElement('div'); spot.id = 'spot'; document.body.prepend(spot);
+  let sx = 0, sy = 0, queued = false;
+  addEventListener('pointermove', e => {
+    sx = e.clientX; sy = e.clientY;
+    if (queued) return; queued = true;
+    requestAnimationFrame(() => { queued = false; spot.style.setProperty('--sx', sx + 'px'); spot.style.setProperty('--sy', sy + 'px'); document.body.classList.add('spot-on'); });
+  }, { passive: true });
+  document.addEventListener('pointerleave', () => document.body.classList.remove('spot-on'));
+}
+
 // views render asynchronously: reveal sections and wake 3D rings whenever new content lands
 const enhance = debounce(() => { const v = $('#view'); reveal(v); v.querySelectorAll('.ring3d:not([data-ready])').forEach(r => { r.dataset.ready = '1'; initRing(r); }); }, 40);
 new MutationObserver(enhance).observe($('#view'), { childList: true, subtree: true });
@@ -78,15 +109,51 @@ function renderAccount() {
   const btn = $('#accountBtn');
   if (cloud.signedIn) {
     const n = cloud.profile?.display_name || cloud.user.email;
-    btn.innerHTML = avatar(n, cloud.profile?.avatar_hue ?? 275) + `<span class="acct-name ellipsis">${esc(n)}</span>`;
+    btn.innerHTML = avatarOf(cloud.card, 'sm') + `<span class="acct-name ellipsis">${esc(n)}</span>`;
     btn.href = '#/perfil'; btn.classList.add('in');
   } else { btn.innerHTML = '<span>Entrar</span>'; btn.href = '#/cuenta'; btn.classList.remove('in'); }
   $('#dockMe span').textContent = cloud.signedIn ? 'Tú' : 'Entrar';
+  const me = $('#dockMe .dock-av');
+  if (cloud.signedIn) { if (me) me.innerHTML = avatarOf(cloud.card, 'xs'); else $('#dockMe svg')?.insertAdjacentHTML('afterend', `<span class="dock-av">${avatarOf(cloud.card, 'xs')}</span>`); }
+  else me?.remove();
+  document.body.classList.toggle('has-av', cloud.signedIn);
 }
+
+/* ================= PLAN LIMITS ================= */
+// Meters on the profile / plans pages follow the live counters; the hard stop shows a countdown to the next window.
+quota.addEventListener('change', () => {
+  const m = $('#pfMeters'); if (m) m.innerHTML = V.usageMeters();
+  const chip = $('#usageChip'); if (chip) chip.outerHTML = V.usageChip();
+});
+let limitOpen = false;
+player.addEventListener('limit', e => {
+  const skips = e.detail === 'skips';
+  if (limitOpen) return;
+  if (skips && !quota.exhausted) {
+    toast(`Has usado tus ${quota.state.limits.skips} saltos de hoy. Vuelven en ${fmtLeft(quota.resetsIn)}.`, { text: 'Ver planes', run: () => { location.hash = '#/planes'; } });
+    return;
+  }
+  limitOpen = true;
+  const next = quota.plan === 'free' ? PLANS.pro : PLANS.max;
+  modal(`<div class="limit-box"><div class="lb-orb"><svg viewBox="0 0 120 120" aria-hidden="true"><circle class="m-track" cx="60" cy="60" r="52"/><circle class="m-fill" cx="60" cy="60" r="52" id="lbRing"/></svg>${icons.hourglass}</div>
+    <h3>Tu tiempo de hoy se ha agotado</h3>
+    <p class="muted">El plan Free incluye 5 horas de música cada 24 horas. Tu tiempo vuelve en</p>
+    <div class="lb-count" id="lbCount">${fmtLeft(quota.resetsIn)}</div>
+    <p class="muted small">Con ${next.name} escuchas sin límite de horas.</p>
+    <div class="acts"><button class="pill ghost" data-close>Entendido</button><a class="pill primary" href="#/planes" data-close>Ver planes</a></div></div>`, (el, close) => {
+    const tick = () => {
+      if (!el.isConnected) { clearInterval(iv); limitOpen = false; return; }
+      $('#lbCount', el).textContent = fmtLeft(quota.resetsIn);
+      $('#lbRing', el).style.strokeDashoffset = (326.7 * (quota.resetsIn / 864e5)).toFixed(1);
+      if (!quota.exhausted) { close(); limitOpen = false; toast('Tu tiempo de escucha se ha renovado'); }
+    };
+    const iv = setInterval(tick, 1000); tick();
+  });
+});
 cloud.addEventListener('auth', () => {
   renderAccount(); applyTheme();
   const r = document.body.dataset.route;
-  if (['cuenta', 'perfil', 'admin', 'inicio', 'biblioteca', 'megusta', 'playlist'].includes(r)) route();
+  if (['cuenta', 'perfil', 'admin', 'inicio', 'biblioteca', 'megusta', 'playlist', 'planes'].includes(r)) route();
 });
 cloud.addEventListener('announcement', () => { if (document.body.dataset.route === 'inicio') V.home(); });
 cloud.addEventListener('sources', () => { if (['inicio', 'explorar'].includes(document.body.dataset.route)) route(); });
@@ -109,7 +176,7 @@ document.addEventListener('click', async e => {
     const L = getList(wrap.dataset.list); if (!L) return;
     const i = +row.dataset.i, t = L.tracks[i];
     const act = e.target.closest('[data-act]')?.dataset.act;
-    if (act === 'like') return lib.toggleLike(t);
+    if (act === 'like') { if (!lib.isLiked(t)) likeBurst(e.target.closest('[data-act]')); return lib.toggleLike(t); }
     if (act === 'more') return trackMenu(t, e.target.closest('[data-act]'), { playlistId: L.playlistId });
     if (wrap.dataset.now) return player.toggle();
     if (wrap.dataset.manual) return player.jumpManual(i);
@@ -210,7 +277,8 @@ function refreshLikes() {
   ['#isLike', '#orLike'].forEach(s => { const b = $(s); b.innerHTML = on ? icons.heartOn : icons.heart; b.classList.toggle('on', on); b.hidden = !t || t.src === 'local'; });
   $$('.trow').forEach(r => { const b = r.querySelector('[data-act="like"]'); const L = getList(r.closest('.tracks')?.dataset.list); const tr = L?.tracks[+r.dataset.i]; if (!b || !tr) return; const l = lib.isLiked(tr); b.classList.toggle('on', l); b.innerHTML = l ? icons.heartOn : icons.heart; });
 }
-['#isLike', '#orLike'].forEach(s => $(s).onclick = e => { e.stopPropagation(); if (player.current) lib.toggleLike(player.current); });
+function likeBurst(el) { const r = el.getBoundingClientRect(); burst(r.left + r.width / 2, r.top + r.height / 2, { n: 16, colors: ['#ff5ea8', '#ffd36e', '#a78bfa', '#7df9ff'] }); }
+['#isLike', '#orLike'].forEach(s => $(s).onclick = e => { e.stopPropagation(); if (!player.current) return; if (!lib.isLiked(player.current)) likeBurst(e.currentTarget); lib.toggleLike(player.current); });
 
 function renderState() {
   const p = player.paused, ic = p ? icons.play : icons.pause, lbl = p ? 'Reproducir' : 'Pausar';
@@ -362,13 +430,13 @@ $('#orNextList').onclick = e => { const b = e.target.closest('[data-ni]'); if (!
 let lyr = null, lyrIdx = -1;
 async function loadLyrics(t) {
   lyr = null; lyrIdx = -1;
-  if (t.live) { $('#orLyrics').innerHTML = `<div class="lyr-msg">📻 Radio en directo${t.country ? ' desde ' + esc(t.country) : ''}.<br><small>Las emisoras no comparten la letra de lo que suena.</small></div>`; return; }
+  if (t.live) { $('#orLyrics').innerHTML = `<div class="lyr-msg">${icons.radio}<br>Radio en directo${t.country ? ' desde ' + esc(t.country) : ''}.<br><small>Las emisoras no comparten la letra de lo que suena.</small></div>`; return; }
   $('#orLyrics').innerHTML = '<div class="lyr-msg">Buscando la letra…</div>';
   try { lyr = await fetchLyrics(t); } catch { lyr = null; }
   if (player.current !== t) return;
   const el = $('#orLyrics');
   if (!lyr) el.innerHTML = '<div class="lyr-msg">No encontramos la letra de esta canción.</div>';
-  else if (lyr.instrumental) el.innerHTML = '<div class="lyr-msg">♪ Instrumental ♪</div>';
+  else if (lyr.instrumental) el.innerHTML = `<div class="lyr-msg">${icons.wave}<br>Instrumental</div>`;
   else el.innerHTML = (lyr.synced ? '' : '<div class="lyr-note">Letra sin sincronizar</div>') + lyr.lines.map((l, i) => `<p data-li="${i}" class="${lyr.synced ? '' : 'plain'}">${esc(l.text) || '&nbsp;'}</p>`).join('');
   syncLyrics(player.time);
 }
@@ -391,7 +459,7 @@ async function notifyTrack(t) {
     reg.showNotification(t.title, {
       body: [t.artist, t.album].filter(Boolean).join(' · '), icon: t.cover || 'icons/icon-192.png', badge: 'icons/icon-192.png',
       tag: 'listentoo-now', renotify: false, silent: true,
-      actions: [{ action: 'prev', title: '⏮ Anterior' }, { action: 'toggle', title: '⏯ Pausa' }, { action: 'next', title: '⏭ Siguiente' }]
+      actions: [{ action: 'prev', title: 'Anterior' }, { action: 'toggle', title: 'Pausa' }, { action: 'next', title: 'Siguiente' }]
     });
   } catch { /* unsupported */ }
 }
@@ -433,7 +501,7 @@ addEventListener('appinstalled', () => { $('#installBtn').hidden = true; toast('
 const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
 document.body.classList.toggle('standalone', !!standalone);
 if (/iphone|ipad|ipod/i.test(navigator.userAgent) && !standalone && !store.get('iosHint')) {
-  setTimeout(() => { toast('Instálala: Compartir → «Añadir a pantalla de inicio»'); store.set('iosHint', true); }, 4000);
+  setTimeout(() => { toast('Instálala: Compartir y luego «Añadir a pantalla de inicio»'); store.set('iosHint', true); }, 4000);
 }
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
   navigator.serviceWorker.register('sw.js').then(reg => {

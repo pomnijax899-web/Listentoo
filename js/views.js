@@ -6,7 +6,8 @@ import { player } from './player.js';
 import { cloud } from './cloud.js';
 import { THEMES, applyTheme, resolveTheme } from './themes.js';
 import { fx } from './fx.js';
-import { icons, img, trackList, card, shelf, mosaic, skeleton, skeletonShelves, errorState, registerList, prompt, confirmBox, share, showMenu, modal, trackCards, avatar, hrefOf, stationCards } from './ui.js';
+import { icons, img, trackList, card, shelf, mosaic, skeleton, skeletonShelves, errorState, registerList, prompt, confirmBox, share, showMenu, modal, trackCards, avatar, avatarOf, planChip, PLANS_UI, burst, hrefOf, stationCards, communityCards } from './ui.js';
+import { PLANS, quota, fmtLeft, fmtSecs } from './plans.js';
 
 const view = () => $('#view');
 let seqN = 0;
@@ -34,10 +35,10 @@ function bindActions(root, { tracks, label, href, onSave, onMore }) {
   root.querySelector('[data-hero="shuffle"]')?.addEventListener('click', () => player.playList(tracks, 0, { label, href, shuffle: true }));
   root.querySelector('[data-hero="save"]')?.addEventListener('click', onSave || (() => {}));
   root.querySelector('[data-hero="more"]')?.addEventListener('click', e => onMore ? onMore(e.currentTarget) : showMenu([
-    { icon: '☰', text: 'Añadir a la cola', run: () => player.addToQueue(tracks) },
-    { icon: '＋', text: 'Guardar como playlist', run: async () => { const n = await prompt('Nueva playlist', label, 'Crear'); if (n !== null) { lib.createPlaylist(n, tracks); toast('Playlist creada'); } } },
-    ...lib.playlists.slice(0, 8).map(p => ({ icon: '♪', text: `Añadir a «${p.name}»`, run: () => lib.addToPlaylist(p.id, tracks) })),
-    '-', { icon: '↗', text: 'Compartir', run: () => share(label, href) }
+    { icon: icons.addq, text: 'Añadir a la cola', run: () => player.addToQueue(tracks) },
+    { icon: icons.plus, text: 'Guardar como playlist', run: async () => { const n = await prompt('Nueva playlist', label, 'Crear'); if (n !== null) { lib.createPlaylist(n, tracks); toast('Playlist creada'); } } },
+    ...lib.playlists.slice(0, 8).map(p => ({ icon: icons.music, text: `Añadir a «${p.name}»`, run: () => lib.addToPlaylist(p.id, tracks) })),
+    '-', { icon: icons.share, text: 'Compartir', run: () => share(label, href) }
   ], e.currentTarget));
 }
 const poster = ({ c, art, kind, title, meta = '', desc = '', cls = '' }) => `
@@ -62,6 +63,7 @@ export async function home() {
         <div class="hud-tag"><span class="blink"></span>${esc(today)}</div>
         <h1 class="greet">${greeting()}${name ? `,<br><span class="grad">${esc(name)}</span>` : ''}</h1>
         <p class="muted">¿Qué te apetece escuchar hoy?</p>
+        ${usageChip()}
       </div>
       <section class="ring3d" aria-label="Álbumes del momento">
         <div class="ring-track" style="--n:12">${Array.from({ length: 12 }, (_, i) => `<div class="ring-item sk" style="--i:${i}"></div>`).join('')}</div>
@@ -69,7 +71,7 @@ export async function home() {
       </section>
     </section>
     ${ann ? `<div class="announce ${esc(ann.tone || 'info')}"><span class="dot"></span><p>${esc(ann.text)}</p></div>` : ''}
-    <div class="moods">${MOODS.map(m => `<a class="mood" href="#/mood/${m.id}" style="--m1:${m.c[0]};--m2:${m.c[1]}"><span>${m.icon}</span>${esc(m.name)}</a>`).join('')}</div>
+    <div class="moods">${MOODS.map(m => `<a class="mood" href="#/mood/${m.id}" style="--m1:${m.c[0]};--m2:${m.c[1]}"><span>${icons[m.icon]}</span>${esc(m.name)}</a>`).join('')}</div>
     ${cloud.signedIn ? '' : `<a class="cta" href="#/cuenta"><div><b>Crea tu cuenta gratis</b><p>Tu biblioteca y tus emisoras en todos tus dispositivos, y playlists para compartir.</p></div><span class="pill primary">Empezar</span></a>`}
     <div class="bento" id="bento">
       <a class="tile t-top" data-tilt href="#/top"><div class="t-collage" id="topCollage">${Array.from({ length: 6 }, () => '<i class="sk"></i>').join('')}</div><div class="t-body"><div class="eyebrow">Lista del día</div><h2>Top 50 Global</h2><p id="topSub" class="muted">Lo más escuchado ahora mismo</p></div><button class="fab show" id="topPlay" aria-label="Reproducir Top 50">${icons.play}</button></a>
@@ -126,9 +128,11 @@ export async function explore(q = '') {
   if (!q) {
     view().innerHTML = `<div class="page-search"><input id="pageSearch" type="search" placeholder="Artistas, canciones, álbumes…" autocomplete="off" enterkeyhint="search"></div>
       <h1>Explorar</h1>
-      <h2>Para cada momento</h2><div class="mood-grid">${MOODS.map(m => `<a class="mood-card" data-tilt href="#/mood/${m.id}" style="--m1:${m.c[0]};--m2:${m.c[1]}"><span class="mi">${m.icon}</span><b>${esc(m.name)}</b></a>`).join('')}</div>
+      <h2>Para cada momento</h2><div class="mood-grid">${MOODS.map(m => `<a class="mood-card" data-tilt href="#/mood/${m.id}" style="--m1:${m.c[0]};--m2:${m.c[1]}"><span class="mi">${icons[m.icon]}</span><b>${esc(m.name)}</b></a>`).join('')}</div>
+      <section class="shelf" id="community" hidden></section>
       <h2>Géneros</h2><div class="genres" id="genres">${Array.from({ length: 12 }, () => '<div class="genre sk"></div>').join('')}</div>`;
     bindPageSearch();
+    cloud.publicUploads(null, 18).then(list => { if (stale(s) || !list.length) return; const c = $('#community'); c.hidden = false; c.innerHTML = `<div class="shelf-head"><h2>Comunidad</h2><span class="more muted">Subidas por cuentas Ultra</span></div>${communityCards(list, 'Comunidad')}`; }).catch(() => {});
     try {
       const gs = await deezer.genres(); if (stale(s)) return;
       $('#genres').innerHTML = `<a class="genre" href="#/top" style="--g1:#7c3aed;--g2:#db2777"><span>Top 100</span></a>` + gs.map((g, i) => `<a class="genre" href="#/genero/${g.id}" style="--g1:hsl(${(i * 37) % 360} 70% 45%);--g2:hsl(${(i * 37 + 50) % 360} 75% 35%)"><span>${esc(g.name)}</span>${img(g.picture_medium, 'gimg')}</a>`).join('');
@@ -138,21 +142,21 @@ export async function explore(q = '') {
   view().innerHTML = `<div class="page-search"><input id="pageSearch" type="search" value="${esc(q)}" autocomplete="off" enterkeyhint="search"></div>
     <div class="chips" id="sfilters">${[['all', 'Todo'], ['tracks', 'Canciones'], ['artists', 'Artistas'], ['albums', 'Álbumes'], ['playlists', 'Playlists'], ['radio', 'Radio'], ['indie', 'Completas']].map(([k, l]) => `<button class="chip${k === lastFilter ? ' on' : ''}" data-f="${k}">${l}</button>`).join('')}</div><div id="sres">${skeleton(6)}</div>`;
   bindPageSearch();
-  const [tr, ar, al, pl, au, rd, jm] = await Promise.allSettled([deezer.search(q, 40), deezer.searchArtists(q, 18), deezer.searchAlbums(q, 18), deezer.searchPlaylists(q, 18), audius.search(q), radio.search(q, 18), jamendo.search(q)]);
+  const [tr, ar, al, pl, au, rd, jm, cm] = await Promise.allSettled([deezer.search(q, 40), deezer.searchArtists(q, 18), deezer.searchAlbums(q, 18), deezer.searchPlaylists(q, 18), audius.search(q), radio.search(q, 18), jamendo.search(q), cloud.publicUploads(q, 18)]);
   if (stale(s)) return;
-  const T = tr.value || [], A = ar.value || [], AL = al.value || [], PL = pl.value || [], RD = rd.value || [], AU = [...(jm.value || []), ...(au.value || [])];
+  const T = tr.value || [], A = ar.value || [], AL = al.value || [], PL = pl.value || [], RD = rd.value || [], CM = cm.value || [], AU = [...(jm.value || []), ...(au.value || [])];
   const mine = [...lib.local, ...lib.liked].filter((t, i, a) => a.findIndex(x => x.id === t.id) === i).filter(t => `${t.title} ${t.artist}`.toLowerCase().includes(q.toLowerCase()));
   const render = f => {
     lastFilter = f;
     $$('#sfilters .chip').forEach(c => c.classList.toggle('on', c.dataset.f === f));
     const box = $('#sres');
-    if (!T.length && !A.length && !AL.length && !AU.length && !RD.length) { box.innerHTML = tr.status === 'rejected' ? errorState() : `<div class="empty"><h3>Nada para «${esc(q)}»</h3><p>Prueba con otras palabras o revisa la ortografía.</p></div>`; return; }
+    if (!T.length && !A.length && !AL.length && !AU.length && !RD.length && !CM.length) { box.innerHTML = tr.status === 'rejected' ? errorState() : `<div class="empty"><h3>Nada para «${esc(q)}»</h3><p>Prueba con otras palabras o revisa la ortografía.</p></div>`; return; }
     const lbl = `Resultados de «${q}»`;
     if (f === 'tracks') box.innerHTML = trackList(T, { label: lbl });
     else if (f === 'artists') box.innerHTML = `<div class="cgrid bubbles">${A.map(a => card(a)).join('')}</div>`;
     else if (f === 'albums') box.innerHTML = `<div class="cgrid">${AL.map(a => card(a)).join('')}</div>`;
     else if (f === 'playlists') box.innerHTML = `<div class="cgrid">${PL.map(a => card(a)).join('')}</div>`;
-    else if (f === 'indie') box.innerHTML = AU.length ? trackList(AU, { label: `Completas: «${q}»` }) : '<div class="empty"><p>No hay canciones completas para esta búsqueda. Prueba la radio en directo.</p></div>';
+    else if (f === 'indie') box.innerHTML = AU.length || CM.length ? trackList([...CM, ...AU], { label: `Completas: «${q}»` }) : '<div class="empty"><p>No hay canciones completas para esta búsqueda. Prueba la radio en directo.</p></div>';
     else if (f === 'radio') box.innerHTML = RD.length ? stationCards(RD, `Radio: «${q}»`, { wrap: true }) : '<div class="empty"><p>No hay emisoras con ese nombre.</p></div>';
     else {
       const exact = A.find(a => a.name.toLowerCase() === q.toLowerCase());
@@ -165,6 +169,7 @@ export async function explore(q = '') {
         <section><h2>Canciones</h2>${trackList(T.slice(0, 5), { label: lbl, album: false, numbers: false })}</section>
       </div>
       ${mine.length ? `<section class="shelf"><h2>En tu biblioteca</h2>${trackList(mine.slice(0, 6), { label: 'Tu biblioteca' })}</section>` : ''}
+      ${CM.length ? `<section class="shelf"><div class="shelf-head"><h2>De la comunidad</h2></div>${communityCards(CM, `Comunidad: «${q}»`)}</section>` : ''}
       ${shelf('Artistas', A)}${shelf('Álbumes', AL)}${shelf('Playlists', PL)}
       ${AU.length ? `<section class="shelf"><h2>Canciones completas</h2>${trackList(AU.slice(0, 6), { label: `Completas: «${q}»` })}</section>` : ''}
       ${RD.length ? `<section class="shelf"><div class="shelf-head"><h2>Emisoras</h2></div>${stationCards(RD, `Radio: «${q}»`)}</section>` : ''}`;
@@ -192,7 +197,7 @@ export async function mood(id) {
     const c = await imageColor(pls[0]?.cover); setTint(c);
     const label = `Mood · ${m.name}`, href = `#/mood/${id}`;
     const k = registerList(tracks, { label, href });
-    view().innerHTML = `<header class="poster mood-poster" style="--m1:${m.c[0]};--m2:${m.c[1]};--c:${rgb(c)}"><div class="poster-art"><div class="mood-orb"><span>${m.icon}</span></div></div><div class="poster-meta"><div class="eyebrow">Estado de ánimo</div><h1 class="title-xl">${esc(m.name)}</h1><p class="byline">${plural(pls.length, 'playlist', 'playlists')} · ${plural(tracks.length, 'canción', 'canciones')}</p></div></header>
+    view().innerHTML = `<header class="poster mood-poster" style="--m1:${m.c[0]};--m2:${m.c[1]};--c:${rgb(c)}"><div class="poster-art"><div class="mood-orb"><span>${icons[m.icon]}</span></div></div><div class="poster-meta"><div class="eyebrow">Estado de ánimo</div><h1 class="title-xl">${esc(m.name)}</h1><p class="byline">${plural(pls.length, 'playlist', 'playlists')} · ${plural(tracks.length, 'canción', 'canciones')}</p></div></header>
       <div class="page-body">${actions({ listKey: k })}<div id="moodRadio"></div>${shelf('Playlists para este momento', pls)}<h2>Canciones</h2>${trackList(tracks, { label, href })}</div>`;
     bindActions(view(), { tracks, label, href });
     radio.byTag(m.tag, 16).then(st => { if (!stale(s) && st.length) $('#moodRadio').innerHTML = `<section class="shelf"><div class="shelf-head"><h2>Radio en directo para este momento</h2><a class="more" href="#/radio/${encodeURIComponent(m.tag)}">Ver todo</a></div>${stationCards(st, `Radio · ${m.name}`)}</section>`; }).catch(() => {});
@@ -317,11 +322,11 @@ export async function playlist(id) {
     <section class="recommend"><h2>${p.tracks.length ? 'Recomendadas para esta playlist' : 'Vamos a llenarla'}</h2>
       <div class="search-inline">${icons.music}<input id="plSearch" type="search" placeholder="Busca canciones para añadir" autocomplete="off"></div><div id="plRec"></div></section></div>`;
   bindActions(view(), { tracks: p.tracks, label, href, onMore: at => showMenu([
-    { icon: '✎', text: 'Editar detalles', run: () => editPlaylist(p) },
-    { icon: p.isPublic ? '🔒' : '🌍', text: p.isPublic ? 'Hacer privada' : 'Hacer pública', run: () => { if (!cloud.signedIn) return toast('Inicia sesión para compartir playlists'); lib.updatePlaylist(id, { isPublic: !p.isPublic }); toast(p.isPublic ? 'Ahora cualquiera con el enlace puede verla' : 'Ahora es privada'); } },
-    ...(p.isPublic ? [{ icon: '↗', text: 'Copiar enlace para compartir', run: () => share(p.name, `#/p/${id}`) }] : []),
-    { icon: '☰', text: 'Añadir a la cola', run: () => player.addToQueue(p.tracks) },
-    '-', { icon: '🗑', text: 'Eliminar playlist', run: async () => { if (await confirmBox('¿Eliminar playlist?', `Se eliminará «${p.name}» de todos tus dispositivos.`)) { lib.deletePlaylist(id); location.hash = '#/biblioteca'; } } }
+    { icon: icons.edit, text: 'Editar detalles', run: () => editPlaylist(p) },
+    { icon: p.isPublic ? icons.lock : icons.globe, text: p.isPublic ? 'Hacer privada' : 'Hacer pública', run: () => { if (!cloud.signedIn) return toast('Inicia sesión para compartir playlists'); lib.updatePlaylist(id, { isPublic: !p.isPublic }); toast(p.isPublic ? 'Ahora cualquiera con el enlace puede verla' : 'Ahora es privada'); } },
+    ...(p.isPublic ? [{ icon: icons.link, text: 'Copiar enlace para compartir', run: () => share(p.name, `#/p/${id}`) }] : []),
+    { icon: icons.addq, text: 'Añadir a la cola', run: () => player.addToQueue(p.tracks) },
+    '-', { icon: icons.trash, text: 'Eliminar playlist', run: async () => { if (await confirmBox('¿Eliminar playlist?', `Se eliminará «${p.name}» de todos tus dispositivos.`)) { lib.deletePlaylist(id); location.hash = '#/biblioteca'; } } }
   ], at) });
   $('#editPl').onclick = () => editPlaylist(p);
   const recBox = $('#plRec');
@@ -393,18 +398,30 @@ export function library() {
   const sorted = items.filter(f).sort((a, b) => (b.pin || 0) - (a.pin || 0) || (libSort === 'alpha' ? (a.title || '').localeCompare(b.title || '') : (b.added || 0) - (a.added || 0)));
   view().innerHTML = `<div class="lib-head"><h1>Tu biblioteca</h1><div class="lib-actions"><button class="pill primary" id="newPl">${icons.plus} Nueva playlist</button><button class="pill ghost" id="importBtn">Importar archivos</button></div></div>
     ${cloud.signedIn ? '' : `<a class="cta slim" href="#/cuenta"><div><b>Guárdalo todo en tu cuenta</b><p>Inicia sesión para sincronizar tu biblioteca entre dispositivos.</p></div><span class="pill primary">Entrar</span></a>`}
-    <div class="chips"><span class="chips-l">${[['all', 'Todo'], ['playlists', 'Playlists'], ['albums', 'Álbumes'], ['artists', 'Artistas'], ['radio', 'Radio'], ['files', 'Archivos']].map(([v, l]) => `<button class="chip${v === libFilter ? ' on' : ''}" data-lf="${v}">${l}</button>`).join('')}</span>
-      <button class="chip ghost" id="libSort">${libSort === 'alpha' ? 'A-Z' : 'Recientes'} ⇅</button></div>
+    <div class="chips"><span class="chips-l">${[['all', 'Todo'], ['playlists', 'Playlists'], ['albums', 'Álbumes'], ['artists', 'Artistas'], ['radio', 'Radio'], ['uploads', 'Subidas'], ['files', 'Archivos']].map(([v, l]) => `<button class="chip${v === libFilter ? ' on' : ''}" data-lf="${v}">${l}</button>`).join('')}</span>
+      <button class="chip ghost" id="libSort">${icons.sort}${libSort === 'alpha' ? 'A-Z' : 'Recientes'}</button></div>
     ${(libFilter === 'all' || libFilter === 'radio') && lib.stations.length ? `<section class="shelf"><div class="shelf-head"><h2>Tus emisoras</h2><a class="more" href="#/radio">Más radio</a></div>${stationCards(lib.stations, 'Tus emisoras', { wrap: libFilter === 'radio' })}</section>` : ''}
     ${libFilter === 'radio' && !lib.stations.length ? `<div class="empty"><h3>Aún no tienes emisoras</h3><p>Guarda tus favoritas con el corazón y aparecerán aquí.</p><a class="pill primary" href="#/radio">Descubrir radio</a></div>` : ''}
-    ${!['files', 'radio'].includes(libFilter) ? `<div class="cgrid lib-grid">${sorted.map(i => card(i, { sub: i.sub })).join('')}</div>` : ''}
+    ${libFilter === 'all' || libFilter === 'uploads' ? `<section class="shelf uploads-shelf" id="upShelf"></section>` : ''}
+    ${!['files', 'radio', 'uploads'].includes(libFilter) ? `<div class="cgrid lib-grid">${sorted.map(i => card(i, { sub: i.sub })).join('')}</div>` : ''}
     ${(libFilter === 'all' || libFilter === 'files') ? `<section class="shelf"><div class="shelf-head"><h2>Archivos de este dispositivo</h2></div>${lib.local.length ? trackList(lib.local, { label: 'Archivos locales', href: '#/biblioteca' }) : `<button class="dropzone" id="dropzone">${icons.music}<div><b>Suelta aquí tu música</b><br><span class="muted">MP3, M4A, FLAC, WAV, OGG… Suena completa y sin conexión.</span></div></button>`}</section>` : ''}`;
   $('#newPl').onclick = async () => { const n = await prompt('Nueva playlist', '', 'Crear'); if (n !== null) location.hash = '#/playlist/' + lib.createPlaylist(n).id; };
   $('#importBtn').onclick = () => $('#filePicker').click();
   $('#dropzone')?.addEventListener('click', () => $('#filePicker').click());
   $$('[data-lf]', view()).forEach(b => b.onclick = () => { libFilter = b.dataset.lf; store.set('libFilter', libFilter); library(); });
   $('#libSort').onclick = () => { libSort = libSort === 'alpha' ? 'recent' : 'alpha'; store.set('libSort', libSort); library(); };
+  const up = $('#upShelf'); if (!up) return;
+  const canUp = cloud.signedIn && (cloud.isAdmin || cloud.profile?.plan === 'ultra');
+  if (!canUp) {
+    up.innerHTML = libFilter === 'uploads' || cloud.signedIn ? `<a class="locked-teaser tier-ultra" href="#/planes" data-tilt><div class="lt-gem">${icons.prism}</div><div><div class="eyebrow">${icons.lock} Ultra</div><b>Sube tus propias canciones</b><p class="muted small">Con Ultra subes audios y canciones, y decides si son públicas para la comunidad o solo para ti.</p></div><span class="pill ghost">Ver planes</span></a>` : '';
+    return;
+  }
+  up.innerHTML = `<div class="shelf-head"><h2>Tus subidas</h2><button class="pill primary sm" id="upBtn">${icons.upload} Subir canción</button></div><div id="upList">${skeleton(3)}</div>`;
+  const list = $('#upList');
+  $('#upBtn').onclick = () => uploadModal(() => renderMyUploads(list));
+  renderMyUploads(list);
 }
+addEventListener('uploads', () => { const l = $('#upList'); if (l) renderMyUploads(l); });
 
 /* ======================= COLA ======================= */
 export function queue() {
@@ -430,7 +447,7 @@ export function account(mode = 'entrar') {
       <form id="authForm" novalidate>
         <label class="fl" data-only="registro"><span>Nombre</span><input class="field" name="name" autocomplete="nickname" maxlength="60" placeholder="¿Cómo te llamamos?"></label>
         <label class="fl"><span>Correo</span><input class="field" name="email" type="email" autocomplete="email" required placeholder="tu@correo.com"></label>
-        <label class="fl" data-hide="recuperar"><span>Contraseña</span><div class="pw"><input class="field" name="password" type="password" autocomplete="current-password" minlength="8" placeholder="Mínimo 8 caracteres"><button type="button" class="pw-eye" aria-label="Mostrar contraseña">👁</button></div></label>
+        <label class="fl" data-hide="recuperar"><span>Contraseña</span><div class="pw"><input class="field" name="password" type="password" autocomplete="current-password" minlength="8" placeholder="Mínimo 8 caracteres"><button type="button" class="pw-eye" aria-label="Mostrar contraseña">${icons.eye}</button></div></label>
         <div class="pw-meter" data-only="registro"><i></i></div>
         <p class="form-msg" id="authMsg" role="alert"></p>
         <button class="pill primary block" type="submit" id="authSubmit"></button>
@@ -480,42 +497,83 @@ export function account(mode = 'entrar') {
 }
 
 /* ======================= PERFIL ======================= */
+const meter = (frac, big, small, cls = '') => `<div class="meter ${cls}"><svg viewBox="0 0 120 120" aria-hidden="true"><circle class="m-track" cx="60" cy="60" r="52"/><circle class="m-fill" cx="60" cy="60" r="52" style="stroke-dashoffset:${(326.7 * (1 - Math.max(0, Math.min(1, frac)))).toFixed(1)}"/></svg><div class="m-txt"><b>${big}</b><small>${small}</small></div></div>`;
+export function usageMeters() {
+  const st = quota.state, lim = st.limits;
+  const hrs = quota.unlimitedTime ? meter(1, icons.infinity, 'escucha ilimitada', 'inf') : meter(quota.secondsLeft / lim.seconds, fmtSecs(quota.secondsLeft), 'de escucha hoy');
+  const sk = quota.unlimitedSkips ? meter(1, icons.infinity, 'saltos ilimitados', 'inf') : meter(quota.skipsLeft / lim.skips, String(quota.skipsLeft), quota.skipsLeft === 1 ? 'salto restante' : 'saltos restantes');
+  const reset = (quota.unlimitedTime && quota.unlimitedSkips) ? '' : meter(1 - quota.resetsIn / 864e5, fmtLeft(quota.resetsIn), 'para renovarse', 'clock');
+  return hrs + sk + reset;
+}
+export function usageChip() {
+  if (cloud.isAdmin || (quota.unlimitedTime && quota.unlimitedSkips)) return '<span id="usageChip" hidden></span>';
+  const parts = [];
+  if (!quota.unlimitedTime) parts.push(`<b>${fmtSecs(quota.secondsLeft)}</b> de escucha`);
+  if (!quota.unlimitedSkips) parts.push(`<b>${quota.skipsLeft}</b> ${quota.skipsLeft === 1 ? 'salto' : 'saltos'}`);
+  const frac = quota.unlimitedTime ? quota.skipsLeft / quota.state.limits.skips : quota.secondsLeft / quota.state.limits.seconds;
+  return `<a class="usage-chip${frac < 0.15 ? ' low' : ''}" id="usageChip" href="#/planes" style="--f:${Math.max(0, Math.min(1, frac)).toFixed(3)}"><i class="uc-ring"></i><span>${parts.join(' · ')} hoy</span>${icons.next2}</a>`;
+}
+async function squareImage(file, size = 512) {
+  const bmp = await createImageBitmap(file);
+  const side = Math.min(bmp.width, bmp.height), c = document.createElement('canvas'); c.width = c.height = size;
+  c.getContext('2d').drawImage(bmp, (bmp.width - side) / 2, (bmp.height - side) / 2, side, side, 0, 0, size, size);
+  return new Promise(res => c.toBlob(b => res(b), 'image/webp', 0.86));
+}
+
 export async function profile() {
   const s = begin(); setTint([90, 60, 180]);
   if (!cloud.signedIn) { store.set('afterLogin', '#/perfil'); location.replace('#/cuenta'); return; }
-  const pr = cloud.profile || {}, email = cloud.user.email;
-  view().innerHTML = `<header class="profile-hero"><button class="avatar-xl" id="hueBtn" style="--h:${pr.avatar_hue ?? 275}" title="Cambiar color">${esc((pr.display_name || email).charAt(0).toUpperCase())}</button>
-      <div><div class="eyebrow">Perfil${cloud.isAdmin ? ' · Administrador' : ''}</div><h1 class="title-xl">${esc(pr.display_name || email.split('@')[0])}</h1><p class="byline">${esc(email)}</p>
+  const pr = cloud.profile || {}, email = cloud.user.email, plan = pr.plan || 'free', admin = cloud.isAdmin;
+  const P = PLANS[admin ? 'ultra' : plan] || PLANS.free, tier = admin ? 'ultra' : plan;
+  const canPhoto = admin || P.photo;
+  view().innerHTML = `<header class="profile-hero tier-${tier}">
+      <div class="pf-av">${avatarOf(cloud.card, 'xl')}${canPhoto ? `<button class="pf-cam" id="pfPhoto" title="Cambiar foto" aria-label="Cambiar foto">${icons.camera}</button><input type="file" id="pfPhotoFile" accept="image/*" hidden>` : ''}</div>
+      <div class="pf-meta"><div class="eyebrow">Perfil</div><h1 class="title-xl">${esc(pr.display_name || email.split('@')[0])}</h1>
+      <div class="pf-badges">${planChip(plan, admin)}<span class="byline">${esc(email)}</span></div>
       <div class="stats-row"><span><b>${lib.songs.length}</b> me gusta</span><span><b>${lib.stations.length}</b> emisoras</span><span><b>${lib.playlists.length}</b> playlists</span><span><b>${lib.artists.length}</b> artistas</span><span id="playsCount"><b>…</b> escuchas</span></div></div></header>
     <div class="page-body">
+      <section class="plan-panel tier-${tier}" data-tilt>
+        <div class="pp-head"><div class="pp-emblem">${icons[admin ? 'crown' : (PLANS_UI[plan]?.icon || 'wave')]}</div><div><div class="eyebrow">Tu plan</div><h2>${admin ? 'Administrador' : P.name}</h2><p class="muted">${admin ? 'Todas las funciones, sin límites' : esc(P.tagline)}</p></div>
+          <a class="pill ${plan === 'ultra' || admin ? 'ghost' : 'primary'}" href="#/planes">${plan === 'ultra' || admin ? 'Ver planes' : 'Mejorar plan'}</a></div>
+        <div class="meters" id="pfMeters">${usageMeters()}</div><p class="muted small" id="pfReq"></p>
+      </section>
       <section class="panel-grid">
         <div class="glass-card"><h3>Tus artistas del mes</h3><div id="topArtists" class="rank"><div class="sk sk-t"></div></div></div>
         <div class="glass-card"><h3>Cuenta</h3>
           <label class="fl"><span>Nombre visible</span><div class="row"><input class="field" id="pfName" maxlength="60" value="${esc(pr.display_name || '')}"><button class="pill" id="pfSave">Guardar</button></div></label>
           <label class="fl"><span>Color del avatar</span><input type="range" id="pfHue" min="0" max="360" value="${pr.avatar_hue ?? 275}" class="hue"></label>
-          <div class="row-btns"><button class="pill ghost" id="pfPw">Cambiar contraseña</button><a class="pill ghost" href="#/temas">Temas</a>${cloud.isAdmin ? '<a class="pill ghost" href="#/admin">Panel de admin</a>' : ''}</div></div>
+          ${canPhoto ? `<div class="row-btns"><button class="pill ghost" id="pfPhoto2">${icons.camera} Subir foto</button>${pr.avatar_url ? '<button class="pill ghost" id="pfPhotoDel">Quitar foto</button>' : ''}</div>` : `<p class="muted small">La foto de perfil está incluida en Max y Ultra.</p>`}
+          <div class="row-btns"><button class="pill ghost" id="pfPw">Cambiar contraseña</button><a class="pill ghost" href="#/temas">Temas</a>${admin ? '<a class="pill ghost" href="#/admin">Panel de admin</a>' : ''}</div></div>
         <div class="glass-card"><h3>Reproducción</h3>
           <label class="switch"><span><b>Reproducción automática</b><small>Al terminar, sigue con canciones parecidas.</small></span><input type="checkbox" id="pfAuto" ${lib.settings.autoplay ? 'checked' : ''}><i></i></label>
           <label class="switch"><span><b>Canciones completas vía YouTube</b><small>Usa el reproductor oficial, aislado: nunca abre pestañas ni ventanas.</small></span><input type="checkbox" id="pfYt" ${lib.settings.youtube !== false ? 'checked' : ''}><i></i></label>
           <label class="switch"><span><b>Notificaciones de canción</b><small>Aviso con controles al cambiar de canción cuando la app está en segundo plano.</small></span><input type="checkbox" id="pfNotify" ${lib.settings.notify ? 'checked' : ''}><i></i></label></div>
-        <div class="glass-card"><h3>Datos</h3><p class="muted small">Tu biblioteca se guarda cifrada en tránsito en tu cuenta y se sincroniza en tiempo real.</p>
+        <div class="glass-card"><h3>Datos</h3><p class="muted small">Tu biblioteca se guarda en tu cuenta y se sincroniza en tiempo real.</p>
           <div class="row-btns"><button class="pill ghost" id="pfExp">Exportar copia</button><button class="pill ghost" id="pfImp">Importar copia</button><button class="pill ghost" id="pfHist">Borrar historial</button></div>
           <input type="file" id="pfImpFile" accept="application/json" hidden></div>
       </section>
       <div class="danger-zone"><button class="pill ghost" id="pfOut">Cerrar sesión</button><button class="linkbtn danger-t" id="pfDel">Eliminar mi cuenta</button></div>
     </div>`;
+  quota.refresh();
+  cloud.myRequest().then(r => { if (!stale(s) && r) $('#pfReq').innerHTML = `Solicitud de plan <b>${esc(PLANS[r.plan]?.name || r.plan)}</b> pendiente de aprobación.`; }).catch(() => {});
   cloud.stats().then(plays => {
     if (stale(s)) return;
     $('#playsCount').innerHTML = `<b>${plays.length >= 1000 ? '1000+' : plays.length}</b> escuchas`;
     const monthAgo = Date.now() - 30 * 864e5, cnt = {};
     plays.filter(p => Date.parse(p.played_at) > monthAgo).forEach(p => { cnt[p.artist] = { n: (cnt[p.artist]?.n || 0) + 1, cover: cnt[p.artist]?.cover || p.cover }; });
     const top = Object.entries(cnt).sort((a, b) => b[1].n - a[1].n).slice(0, 5);
-    $('#topArtists').innerHTML = top.length ? top.map(([a, v], i) => `<div class="rank-row"><span class="rk">${i + 1}</span>${img(v.cover)}<b class="ellipsis">${esc(a)}</b><span class="muted">${plural(v.n, 'escucha', 'escuchas')}</span></div>`).join('') : '<p class="muted small">Escucha música y aquí aparecerá tu ranking.</p>';
+    $('#topArtists').innerHTML = top.length ? top.map(([a, v], i) => `<div class="rank-row"><span class="rk">${String(i + 1).padStart(2, '0')}</span>${img(v.cover)}<b class="ellipsis">${esc(a)}</b><span class="muted">${plural(v.n, 'escucha', 'escuchas')}</span></div>`).join('') : '<p class="muted small">Escucha música y aquí aparecerá tu ranking.</p>';
   }).catch(() => {});
+  const pick = () => $('#pfPhotoFile')?.click();
+  $('#pfPhoto')?.addEventListener('click', pick); $('#pfPhoto2')?.addEventListener('click', pick);
+  $('#pfPhotoFile')?.addEventListener('change', async e => {
+    const f = e.target.files[0]; if (!f) return;
+    try { toast('Subiendo foto…'); await cloud.uploadAvatar(await squareImage(f)); toast('Foto actualizada'); profile(); } catch (err) { toast(err.message); }
+  });
+  $('#pfPhotoDel')?.addEventListener('click', async () => { await cloud.removeAvatar().catch(e => toast(e.message)); profile(); });
   $('#pfSave').onclick = async () => { try { await cloud.updateProfile({ display_name: $('#pfName').value.trim().slice(0, 60) || null }); toast('Perfil actualizado'); profile(); } catch (e) { toast(e.message); } };
-  const hue = $('#pfHue'); hue.oninput = () => $('#hueBtn').style.setProperty('--h', hue.value);
+  const hue = $('#pfHue'); hue.oninput = () => $$('.pf-av .av', view()).forEach(a => a.style.setProperty('--h', hue.value));
   hue.onchange = () => cloud.updateProfile({ avatar_hue: +hue.value }).catch(e => toast(e.message));
-  $('#hueBtn').onclick = () => { hue.value = (+hue.value + 47) % 360; hue.oninput(); hue.onchange(); };
   $('#pfPw').onclick = () => changePassword();
   $('#pfAuto').onchange = e => lib.setSetting('autoplay', e.target.checked);
   $('#pfYt').onchange = e => lib.setSetting('youtube', e.target.checked);
@@ -572,50 +630,130 @@ export function themes() {
   void resolveTheme;
 }
 
+/* ======================= PLANES ======================= */
+export async function plansPage() {
+  const s = begin(); setTint([150, 110, 40]);
+  const cur = cloud.signedIn ? (cloud.isAdmin ? 'admin' : cloud.profile?.plan || 'free') : null;
+  const yes = `<i class="f-yes">${icons.check}</i>`, no = `<i class="f-no">${icons.close}</i>`;
+  const row = (label, v) => `<li><span>${label}</span><b>${v}</b></li>`;
+  const card = p => {
+    const ui = PLANS_UI[p.id];
+    const time = p.seconds ? `${p.seconds / 3600} h al día` : 'Ilimitada';
+    const skips = p.skips == null ? 'Ilimitados' : `${p.skips} al día`;
+    return `<article class="plan-card tier-${p.id}${cur === p.id ? ' current' : ''}" data-tilt data-plan="${p.id}">
+      <div class="pc-shine"></div>
+      <header><div class="pc-emblem">${icons[ui.icon]}</div><div><h2>${p.name}</h2><p>${esc(p.tagline)}</p></div></header>
+      <div class="pc-frame">${avatarOf({ name: cloud.profile?.display_name || 'Tú', hue: cloud.profile?.avatar_hue ?? 275, url: cloud.profile?.avatar_url || '', plan: p.id }, 'lg')}<small>${p.frame}</small></div>
+      <ul class="pc-feats">
+        ${row('Escucha', time)}${row('Saltos', skips)}${row('Sin anuncios', yes)}
+        ${row('Foto de perfil', p.photo ? yes : no)}${row('Sube tus canciones', p.upload ? yes : no)}
+      </ul>
+      <div class="pc-cta" data-cta="${p.id}"></div>
+    </article>`;
+  };
+  view().innerHTML = `<header class="plans-hero"><div class="eyebrow">Planes</div><h1 class="title-xl">Elige tu órbita</h1>
+      <p class="muted lead">Todos los planes son sin anuncios. El tiempo y los saltos se renuevan cada 24 horas desde que empiezas a escuchar.${cloud.signedIn ? '' : ' Crea una cuenta para solicitar un plan.'}</p>
+      ${cloud.signedIn && !cloud.isAdmin ? `<div class="meters mini">${usageMeters()}</div>` : ''}</header>
+    <div class="plan-grid">${Object.values(PLANS).map(card).join('')}</div>
+    <p class="fine center">Las mejoras de plan las aprueba la administración. Recibirás el cambio en todos tus dispositivos al instante.</p>`;
+  let req = null;
+  try { req = cloud.signedIn ? await cloud.myRequest() : null; } catch { /* offline */ }
+  if (stale(s)) return;
+  const order = ['free', 'pro', 'max', 'ultra'];
+  $$('[data-cta]', view()).forEach(box => {
+    const id = box.dataset.cta;
+    if (!cloud.signedIn) { box.innerHTML = `<a class="pill primary block" href="#/cuenta/registro">Crear cuenta</a>`; return; }
+    if (cur === 'admin') { box.innerHTML = `<span class="pc-note">${icons.crown} Incluido como administrador</span>`; return; }
+    if (cur === id) { box.innerHTML = `<span class="pc-note">${icons.check} Tu plan actual</span>`; return; }
+    if (id === 'free') { box.innerHTML = `<span class="pc-note muted">Plan básico</span>`; return; }
+    if (req?.plan === id) { box.innerHTML = `<button class="pill ghost block" data-cancel="${req.id}">Solicitud enviada · cancelar</button>`; return; }
+    box.innerHTML = `<button class="pill ${order.indexOf(id) > order.indexOf(cur) ? 'primary' : 'ghost'} block" data-req="${id}" data-magnet>Solicitar ${PLANS[id].name}</button>`;
+  });
+  view().onclick = async e => {
+    const b = e.target.closest('[data-req]'), c = e.target.closest('[data-cancel]');
+    if (c) { try { await cloud.cancelRequest(+c.dataset.cancel); toast('Solicitud cancelada'); plansPage(); } catch (err) { toast(err.message); } return; }
+    if (!b) return;
+    const id = b.dataset.req;
+    modal(`<h3>Solicitar plan ${PLANS[id].name}</h3><p class="muted">La administración revisará tu solicitud y activará el plan en tu cuenta.</p><textarea class="field" id="reqNote" maxlength="300" placeholder="Mensaje opcional"></textarea><div class="acts"><button class="pill ghost" data-close>Cancelar</button><button class="pill primary" data-ok>Enviar solicitud</button></div>`, (el, close) => {
+      el.querySelector('[data-ok]').onclick = async () => {
+        try { await cloud.requestPlan(id, el.querySelector('#reqNote').value.trim()); close(); const r = b.getBoundingClientRect(); burst(r.left + r.width / 2, r.top + r.height / 2, { n: 22 }); toast('Solicitud enviada'); plansPage(); }
+        catch (err) { toast(err.message); }
+      };
+    });
+  };
+}
+
 /* ======================= ADMIN ======================= */
 export async function admin() {
   const s = begin(); setTint([200, 60, 120]);
   if (!cloud.signedIn) { store.set('afterLogin', '#/admin'); location.replace('#/cuenta'); return; }
   if (!cloud.isAdmin) { view().innerHTML = '<div class="empty"><h3>Acceso restringido</h3><p>Esta sección es solo para la administración.</p></div>'; return; }
-  view().innerHTML = `<div class="lib-head"><h1>Panel de admin</h1><button class="pill ghost" id="admRefresh">Actualizar</button></div><div id="adm">${skeleton(4)}</div>`;
+  view().innerHTML = `<div class="lib-head"><div><div class="eyebrow">${icons.crown} Administración</div><h1>Panel de control</h1></div><button class="pill ghost" id="admRefresh">Actualizar</button></div><div id="adm">${skeleton(4)}</div>`;
   $('#admRefresh').onclick = () => admin();
   try {
-    const [o, users, ann] = await Promise.all([cloud.admin.overview(), cloud.admin.users(), cloud.admin.getAnnouncement()]);
+    const [o, users, ann, reqs] = await Promise.all([cloud.admin.overview(), cloud.admin.users(), cloud.admin.getAnnouncement(), cloud.admin.requests().catch(() => [])]);
     if (stale(s)) return;
+    const byId = Object.fromEntries(users.map(u => [u.id, u]));
+    const card = u => ({ name: u.display_name || u.email, hue: u.avatar_hue, url: u.avatar_url, plan: u.plan, admin: u.is_admin });
     const max = Math.max(1, ...o.daily.map(d => d.n));
     const days = Array.from({ length: 14 }, (_, i) => { const d = new Date(Date.now() - (13 - i) * 864e5).toISOString().slice(0, 10); return { d, n: o.daily.find(x => x.day === d)?.n || 0 }; });
     const kpi = (v, l) => `<div class="kpi"><b>${fmtNum(v)}</b><span>${l}</span></div>`;
+    const counts = users.reduce((a, u) => (a[u.is_admin ? 'admin' : u.plan] = (a[u.is_admin ? 'admin' : u.plan] || 0) + 1, a), {});
+    const usage = u => {
+      if (u.is_admin || u.plan !== 'free' && u.plan !== 'pro') return '<span class="muted">Ilimitado</span>';
+      const fresh = u.window_start && Date.now() - Date.parse(u.window_start) < 864e5;
+      const secs = fresh ? u.listen_seconds : 0, sk = fresh ? u.skips : 0;
+      return `${u.plan === 'free' ? `${(secs / 3600).toFixed(1)} / 5 h · ` : ''}${sk} / ${u.plan === 'free' ? 5 : 100} saltos`;
+    };
     $('#adm').innerHTML = `
-      <div class="kpis">${kpi(o.users, 'usuarios')}${kpi(o.users_7d, 'nuevos (7 días)')}${kpi(o.active_24h, 'activos hoy')}${kpi(o.plays_24h, 'escuchas hoy')}${kpi(o.plays, 'escuchas totales')}${kpi(o.playlists, 'playlists')}</div>
+      <div class="kpis">${kpi(o.users, 'usuarios')}${kpi(o.users_7d, 'nuevos (7 días)')}${kpi(o.active_24h, 'activos hoy')}${kpi(o.plays_24h, 'escuchas hoy')}${kpi(o.plays, 'escuchas totales')}${kpi(o.playlists, 'playlists')}${kpi(reqs.length, 'solicitudes pendientes')}${kpi((counts.pro || 0) + (counts.max || 0) + (counts.ultra || 0), 'cuentas de pago')}</div>
+      <section class="glass-card accounts" id="accounts"><div class="acc-head"><h3>Cuentas y planes</h3><div class="plan-mix">${['free', 'pro', 'max', 'ultra'].map(p => `<span class="plan-chip tier-${p}">${icons[PLANS_UI[p].icon]}${PLANS_UI[p].name} · ${counts[p] || 0}</span>`).join('')}</div></div>
+        ${reqs.length ? `<div class="requests"><h4>Solicitudes pendientes</h4>${reqs.map(r => { const u = byId[r.user_id] || { email: 'Usuario', plan: 'free' }; return `<div class="req-row" data-req="${r.id}" data-user="${r.user_id}" data-plan="${r.plan}">${avatarOf(card(u), 'sm')}<div class="rq-who"><b class="ellipsis">${esc(u.display_name || u.email)}</b><small class="ellipsis">${esc(u.email)} · ${new Date(r.created_at).toLocaleDateString('es')}</small>${r.note ? `<small class="rq-note">${esc(r.note)}</small>` : ''}</div><div class="rq-plan">${planChip(u.plan, false)}${icons.next2}${planChip(r.plan, false)}</div><div class="rq-act"><button class="pill primary sm" data-approve>Aprobar</button><button class="pill ghost sm" data-reject>Rechazar</button></div></div>`; }).join('')}</div>` : '<p class="muted small">No hay solicitudes pendientes.</p>'}
+        <div class="acc-tools"><input class="field" id="accFilter" type="search" placeholder="Buscar por nombre o correo"></div>
+        <div class="table-wrap"><table class="utable"><thead><tr><th>Cuenta</th><th>Plan</th><th>Uso (24 h)</th><th>Escuchas</th><th>Alta</th><th>Último acceso</th></tr></thead><tbody id="accRows">
+        ${users.map(u => `<tr data-q="${esc((u.display_name || '') + ' ' + u.email).toLowerCase()}"><td><div class="acc-who">${avatarOf(card(u), 'sm')}<div><b>${esc(u.display_name || '—')}</b><small>${esc(u.email)}${u.confirmed ? '' : ' · sin confirmar'}</small></div></div></td>
+          <td>${u.is_admin ? planChip('ultra', true) : `<div class="plan-set"><select class="field sm" data-user="${u.id}">${['free', 'pro', 'max', 'ultra'].map(p => `<option value="${p}" ${u.plan === p ? 'selected' : ''}>${PLANS_UI[p].name}</option>`).join('')}</select><button class="pill sm" data-apply="${u.id}" hidden>Aplicar</button></div>`}</td>
+          <td>${usage(u)}</td><td>${u.plays}</td><td>${new Date(u.created_at).toLocaleDateString('es')}</td><td>${u.last_sign_in_at ? new Date(u.last_sign_in_at).toLocaleString('es', { dateStyle: 'short', timeStyle: 'short' }) : '—'}</td></tr>`).join('')}
+        </tbody></table></div></section>
       <section class="panel-grid">
         <div class="glass-card wide"><h3>Escuchas · últimos 14 días</h3><div class="bars">${days.map(d => `<div class="bar" style="--v:${d.n / max}" title="${d.d}: ${d.n}"><i></i><small>${d.d.slice(8)}</small></div>`).join('')}</div></div>
         <div class="glass-card"><h3>Canciones completas · YouTube</h3>
-          <p class="status ${o.youtube_configured ? 'ok' : 'warn'}">${o.youtube_configured ? '● Activo para todos los usuarios' : '● Falta la clave: el catálogo suena como vista previa'}</p>
-          <p class="muted small">Las canciones comerciales suenan completas con el reproductor oficial de YouTube, aislado dentro de la app: no puede abrir pestañas ni ventanas. La clave se guarda solo en el servidor. Cada canción nueva cuesta ~101 unidades de cuota (10.000/día gratis ≈ 99 canciones nuevas al día) y las ya encontradas se reutilizan para todos, incluidos invitados.</p>
+          <p class="status ${o.youtube_configured ? 'ok' : 'warn'}"><i class="dot"></i>${o.youtube_configured ? 'Activo para todos los usuarios' : 'Falta la clave: el catálogo suena como vista previa'}</p>
+          <p class="muted small">Las canciones comerciales suenan completas con el reproductor oficial de YouTube, aislado dentro de la app: no puede abrir pestañas ni ventanas. La clave se guarda solo en el servidor. Cada canción nueva cuesta ~101 unidades de cuota (10.000/día gratis, unas 99 canciones nuevas al día) y las ya encontradas se reutilizan para todos.</p>
           <ol class="steps"><li><a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener">Activa «YouTube Data API v3»</a> en Google Cloud.</li><li>En <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Credenciales</a>, crea una clave de API y restríngela a esa API.</li><li>Pégala aquí y pulsa «Probar».</li></ol>
-          <div class="row"><input class="field" id="ytKey" type="password" placeholder="AIza…" autocomplete="off" spellcheck="false"><button class="pill primary" id="ytSave">Guardar</button></div>
+          <div class="row"><input class="field" id="ytKey" type="password" placeholder="AIza..." autocomplete="off" spellcheck="false"><button class="pill primary" id="ytSave">Guardar</button></div>
           <div class="row-btns"><button class="pill ghost sm" id="ytTest">Probar con una canción</button>${o.youtube_configured ? '<button class="pill ghost sm" id="ytDel">Quitar clave</button>' : ''}</div>
           <p class="small muted" id="ytMsg">${fmtNum(o.matches)} canciones completas en caché · ${fmtNum(o.lookups_today)} búsquedas hoy</p></div>
         <div class="glass-card"><h3>Fuentes de audio</h3>
           <ul class="sources">
-            <li><b>Catálogo (Deezer)</b><span class="status ok">● Activo</span><small>Búsqueda, artistas, álbumes y vistas previas de 30 s.</small></li>
-            <li><b>Versiones completas (Audius)</b><span class="status ok">● Activo</span><small>Si el propio artista subió la canción, suena completa en vez de la vista previa.</small></li>
-            <li><b>Radio en directo</b><span class="status ok">● Activo</span><small>Miles de emisoras con licencia, música completa 24/7.</small></li>
-            <li><b>Música libre (Jamendo)</b><span class="status ${cloud.jamendoId ? 'ok' : 'warn'}">● ${cloud.jamendoId ? 'Activo' : 'Opcional'}</span><small>Cientos de miles de canciones completas con licencia Creative Commons.</small></li>
+            <li><b>Catálogo (Deezer)</b><span class="status ok"><i class="dot"></i>Activo</span><small>Búsqueda, artistas, álbumes y vistas previas de 30 s.</small></li>
+            <li><b>Versiones completas (Audius)</b><span class="status ok"><i class="dot"></i>Activo</span><small>Si el propio artista subió la canción, suena completa en vez de la vista previa.</small></li>
+            <li><b>Radio en directo</b><span class="status ok"><i class="dot"></i>Activo</span><small>Miles de emisoras con licencia, música completa 24/7.</small></li>
+            <li><b>Subidas Ultra</b><span class="status ok"><i class="dot"></i>Activo</span><small>Canciones subidas por cuentas Ultra, públicas o privadas.</small></li>
+            <li><b>Música libre (Jamendo)</b><span class="status ${cloud.jamendoId ? 'ok' : 'warn'}"><i class="dot"></i>${cloud.jamendoId ? 'Activo' : 'Opcional'}</span><small>Canciones completas con licencia Creative Commons.</small></li>
           </ul>
-          <p class="muted small">Para activar Jamendo, crea una app gratis en <a href="https://devportal.jamendo.com/" target="_blank" rel="noopener">devportal.jamendo.com</a> y pega aquí su <b>Client ID</b> (es un identificador público).</p>
+          <p class="muted small">Para activar Jamendo, crea una app gratis en <a href="https://devportal.jamendo.com/" target="_blank" rel="noopener">devportal.jamendo.com</a> y pega su <b>Client ID</b>.</p>
           <div class="row"><input class="field" id="jmId" placeholder="Client ID de Jamendo" value="${esc(cloud.jamendoId)}" autocomplete="off" spellcheck="false"><button class="pill primary" id="jmSave">Guardar</button></div>
           ${cloud.jamendoId ? '<div class="row-btns"><button class="pill ghost sm" id="jmDel">Desactivar Jamendo</button></div>' : ''}<p class="small muted" id="jmMsg"></p></div>
         <div class="glass-card"><h3>Anuncio para todos</h3><p class="muted small">Aparece en el inicio de todos los usuarios al instante.</p>
-          <textarea class="field" id="annText" maxlength="280" placeholder="Ej.: ¡Nuevos temas disponibles!">${esc(ann.text || '')}</textarea>
+          <textarea class="field" id="annText" maxlength="280" placeholder="Ej.: Nuevos temas disponibles">${esc(ann.text || '')}</textarea>
           <div class="row"><select class="field" id="annTone">${[['info', 'Información'], ['ok', 'Novedad'], ['warn', 'Aviso']].map(([v, l]) => `<option value="${v}" ${ann.tone === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
           <label class="switch inline"><input type="checkbox" id="annOn" ${ann.active ? 'checked' : ''}><i></i><span>Visible</span></label></div>
           <button class="pill primary" id="annSave">Publicar</button></div>
-        <div class="glass-card"><h3>Más escuchadas · 30 días</h3><div class="rank">${o.top_tracks.length ? o.top_tracks.map((t, i) => `<div class="rank-row"><span class="rk">${i + 1}</span>${img(t.cover)}<span class="ellipsis"><b>${esc(t.title)}</b><small class="muted"> · ${esc(t.artist)}</small></span><span class="muted">${t.n}</span></div>`).join('') : '<p class="muted small">Aún no hay escuchas.</p>'}</div></div>
-      </section>
-      <section class="glass-card"><h3>Usuarios (${users.length})</h3><div class="table-wrap"><table class="utable"><thead><tr><th>Usuario</th><th>Correo</th><th>Alta</th><th>Último acceso</th><th>Escuchas</th><th>Estado</th></tr></thead><tbody>
-        ${users.map(u => `<tr><td>${avatar(u.display_name || u.email, (u.email.length * 47) % 360, 'sm')} ${esc(u.display_name || '—')}${u.is_admin ? ' <span class="tag">Admin</span>' : ''}</td><td>${esc(u.email)}</td><td>${new Date(u.created_at).toLocaleDateString('es')}</td><td>${u.last_sign_in_at ? new Date(u.last_sign_in_at).toLocaleString('es', { dateStyle: 'short', timeStyle: 'short' }) : '—'}</td><td>${u.plays}</td><td>${u.confirmed ? '<span class="ok-t">Confirmado</span>' : '<span class="warn-t">Pendiente</span>'}</td></tr>`).join('')}
-      </tbody></table></div></section>`;
+        <div class="glass-card"><h3>Más escuchadas · 30 días</h3><div class="rank">${o.top_tracks.length ? o.top_tracks.map((t, i) => `<div class="rank-row"><span class="rk">${String(i + 1).padStart(2, '0')}</span>${img(t.cover)}<span class="ellipsis"><b>${esc(t.title)}</b><small class="muted"> · ${esc(t.artist)}</small></span><span class="muted">${t.n}</span></div>`).join('') : '<p class="muted small">Aún no hay escuchas.</p>'}</div></div>
+      </section>`;
+    // accounts: change plans, approve / reject requests, filter
+    const acc = $('#accounts');
+    acc.addEventListener('change', e => { const sel = e.target.closest('select[data-user]'); if (sel) acc.querySelector(`[data-apply="${sel.dataset.user}"]`).hidden = sel.value === byId[sel.dataset.user].plan; });
+    acc.addEventListener('click', async e => {
+      const ap = e.target.closest('[data-apply]'), row = e.target.closest('.req-row');
+      try {
+        if (ap) { const uid = ap.dataset.apply, plan = acc.querySelector(`select[data-user="${uid}"]`).value; await cloud.admin.setPlan(uid, plan); const r = ap.getBoundingClientRect(); burst(r.left + r.width / 2, r.top, { n: 18 }); toast(`Plan ${PLANS_UI[plan].name} asignado`); admin(); }
+        else if (row && e.target.closest('[data-approve]')) { await cloud.admin.setPlan(row.dataset.user, row.dataset.plan); toast(`Plan ${PLANS_UI[row.dataset.plan].name} aprobado`); admin(); }
+        else if (row && e.target.closest('[data-reject]')) { await cloud.admin.rejectRequest(+row.dataset.req); toast('Solicitud rechazada'); admin(); }
+      } catch (err) { toast(err.message); }
+    });
+    $('#accFilter').oninput = e => { const q = e.target.value.trim().toLowerCase(); $$('#accRows tr').forEach(tr => { tr.hidden = q && !tr.dataset.q.includes(q); }); };
     const ytMsg = $('#ytMsg');
     $('#ytSave').onclick = async () => {
       const k = $('#ytKey').value.trim(); if (!/^AIza[0-9A-Za-z_-]{30,}$/.test(k)) { ytMsg.textContent = 'Esa clave no parece válida (empieza por «AIza»).'; return; }
@@ -623,15 +761,15 @@ export async function admin() {
     };
     $('#ytDel')?.addEventListener('click', async () => { if (await confirmBox('¿Quitar la clave?', 'Las canciones nuevas volverán a sonar como vista previa; las ya encontradas seguirán completas.', 'Quitar')) { await cloud.admin.setYoutubeKey(''); admin(); } });
     $('#ytTest').onclick = async () => {
-      ytMsg.textContent = 'Probando…'; store.del('ytmap2');
+      ytMsg.textContent = 'Probando...'; store.del('ytmap2');
       const r = await cloud.resolve({ id: 'dz:3135553', title: 'One More Time', artist: 'Daft Punk', dur: 320 });
-      ytMsg.textContent = r.videoId ? `✔ Funciona: vídeo ${r.videoId} listo para sonar completo` : `✕ ${({ not_configured: 'No hay clave configurada.', quota: 'Cuota de YouTube agotada por hoy.', youtube: 'YouTube rechazó la clave: revisa que la API esté activada.', not_found: 'No se encontró la canción.', disabled: 'Tienes YouTube desactivado en tu perfil.' })[r.error] || r.message || r.error}`;
+      ytMsg.textContent = r.videoId ? `Funciona: vídeo ${r.videoId} listo para sonar completo.` : `No funciona: ${({ not_configured: 'no hay clave configurada.', quota: 'cuota de YouTube agotada por hoy.', youtube: 'YouTube rechazó la clave; revisa que la API esté activada.', not_found: 'no se encontró la canción.', disabled: 'tienes YouTube desactivado en tu perfil.' })[r.error] || r.message || r.error}`;
     };
     const jmMsg = $('#jmMsg');
     $('#jmSave').onclick = async () => {
       const id = $('#jmId').value.trim(); if (!/^[a-z0-9]{6,40}$/i.test(id)) { jmMsg.textContent = 'Ese Client ID no parece válido.'; return; }
-      jmMsg.textContent = 'Comprobando…';
-      if (!await jamendo.test(id).catch(() => false)) { jmMsg.textContent = '✕ Jamendo no acepta ese Client ID.'; return; }
+      jmMsg.textContent = 'Comprobando...';
+      if (!await jamendo.test(id).catch(() => false)) { jmMsg.textContent = 'Jamendo no acepta ese Client ID.'; return; }
       try { await cloud.admin.setJamendo(id); toast('Jamendo activado para todos'); admin(); } catch (e) { jmMsg.textContent = e.message; }
     };
     $('#jmDel')?.addEventListener('click', async () => { await cloud.admin.setJamendo(''); toast('Jamendo desactivado'); admin(); });
@@ -639,6 +777,46 @@ export async function admin() {
       try { await cloud.admin.setAnnouncement({ text: $('#annText').value.trim(), tone: $('#annTone').value, active: $('#annOn').checked && !!$('#annText').value.trim() }); toast('Anuncio actualizado'); } catch (e) { toast(e.message); }
     };
   } catch (e) { if (!stale(s)) view().innerHTML = errorState(e.message); }
+}
+
+/* ======================= SUBIDAS ULTRA ======================= */
+export function uploadModal(onDone) {
+  modal(`<h3>Subir una canción</h3><p class="muted small">MP3, M4A, FLAC, WAV u OGG de hasta 50 MB. Decide si la escuchas solo tú o toda la comunidad.</p>
+    <label class="drop-in" id="upDrop">${icons.upload}<span id="upFileName">Elige o suelta un archivo de audio</span><input type="file" id="upFile" accept="audio/*" hidden></label>
+    <div class="row"><label class="fl grow"><span>Título</span><input class="field" id="upTitle" maxlength="120"></label><label class="fl grow"><span>Artista</span><input class="field" id="upArtist" maxlength="120" value="${esc(cloud.profile?.display_name || '')}"></label></div>
+    <label class="fl"><span>Portada (opcional)</span><input class="field" id="upCover" type="file" accept="image/*"></label>
+    <label class="switch"><span><b>Pública</b><small>Aparecerá en Comunidad y en las búsquedas. Si la desactivas, solo tú podrás escucharla.</small></span><input type="checkbox" id="upPublic"><i></i></label>
+    <div class="up-progress" hidden><i></i></div><p class="form-msg" id="upMsg"></p>
+    <div class="acts"><button class="pill ghost" data-close>Cancelar</button><button class="pill primary" data-ok>Subir</button></div>`, (el, close) => {
+    let file = null;
+    const fileIn = el.querySelector('#upFile');
+    el.querySelector('#upDrop').onclick = () => fileIn.click();
+    const setFile = f => { if (!f) return; file = f; el.querySelector('#upFileName').textContent = `${f.name} · ${(f.size / 1048576).toFixed(1)} MB`; const t = el.querySelector('#upTitle'); if (!t.value) t.value = f.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim().slice(0, 120); };
+    fileIn.onchange = () => setFile(fileIn.files[0]);
+    el.querySelector('#upDrop').addEventListener('dragover', e => e.preventDefault());
+    el.querySelector('#upDrop').addEventListener('drop', e => { e.preventDefault(); e.stopPropagation(); setFile(e.dataTransfer.files[0]); });
+    el.querySelector('[data-ok]').onclick = async () => {
+      const msg = el.querySelector('#upMsg'), bar = el.querySelector('.up-progress');
+      if (!file) { msg.textContent = 'Elige un archivo de audio.'; msg.className = 'form-msg err'; return; }
+      if (file.size > 50 * 1048576) { msg.textContent = 'El archivo supera los 50 MB.'; msg.className = 'form-msg err'; return; }
+      const title = el.querySelector('#upTitle').value.trim(); if (!title) { msg.textContent = 'Ponle un título.'; msg.className = 'form-msg err'; return; }
+      const btn = el.querySelector('[data-ok]'); btn.disabled = true; bar.hidden = false;
+      try {
+        const duration = await new Promise(res => { const a = new Audio(), u = URL.createObjectURL(file); a.preload = 'metadata'; a.onloadedmetadata = () => { res(a.duration || 0); URL.revokeObjectURL(u); }; a.onerror = () => res(0); a.src = u; });
+        const coverFile = el.querySelector('#upCover').files[0];
+        const cover = coverFile ? await squareImage(coverFile, 600) : null;
+        const t = await cloud.uploadTrack(file, { title, artist: el.querySelector('#upArtist').value.trim(), isPublic: el.querySelector('#upPublic').checked, cover, duration }, p => bar.style.setProperty('--p', (p * 100) + '%'));
+        close(); toast('Canción subida'); onDone?.(t);
+      } catch (e) { msg.textContent = e.message; msg.className = 'form-msg err'; btn.disabled = false; }
+    };
+  });
+}
+export async function renderMyUploads(box) {
+  try {
+    const list = await cloud.myUploads();
+    box.innerHTML = list.length ? trackList(list.map(t => ({ ...t, mine: true })), { label: 'Tus subidas', href: '#/biblioteca' }) : `<button class="dropzone" id="upEmpty">${icons.upload}<div><b>Sube tu primera canción</b><br><span class="muted">Pública para la comunidad o privada solo para ti.</span></div></button>`;
+    box.querySelector('#upEmpty')?.addEventListener('click', () => uploadModal(() => renderMyUploads(box)));
+  } catch (e) { box.innerHTML = `<p class="muted small">${esc(e.message)}</p>`; }
 }
 /* ======================= RADIO EN DIRECTO ======================= */
 const countryOf = () => { const m = (navigator.languages?.[0] || navigator.language || '').match(/-([A-Z]{2})$/i); return m ? m[1].toUpperCase() : ''; };
@@ -649,7 +827,7 @@ export async function radioPage(tag = '') {
   view().innerHTML = `<header class="radio-hero"><div class="rh-waves"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
       <div><div class="eyebrow">En directo · música completa</div><h1 class="title-xl">${tg ? esc(tg[1]) : 'Radio'}</h1><p class="muted">${tg ? 'Emisoras de todo el mundo, sonando ahora.' : 'Miles de emisoras con licencia de todo el mundo, 24 horas. Funciona con la pantalla bloqueada.'}</p></div></header>
     <div class="search-inline wide">${icons.radio}<input id="rdSearch" type="search" placeholder="Busca una emisora (Los 40, BBC, Cadena SER…)" autocomplete="off"></div>
-    <div class="chips scroll">${tg ? '<a class="chip" href="#/radio">← Todas</a>' : ''}${RADIO_TAGS.map(([v, l, c]) => `<a class="chip tagchip${v === tag ? ' on' : ''}" href="#/radio/${encodeURIComponent(v)}" style="--tc:${c}">${l}</a>`).join('')}</div>
+    <div class="chips scroll">${tg ? `<a class="chip" href="#/radio">${icons.back}Todas</a>` : ''}${RADIO_TAGS.map(([v, l, c]) => `<a class="chip tagchip${v === tag ? ' on' : ''}" href="#/radio/${encodeURIComponent(v)}" style="--tc:${c}">${l}</a>`).join('')}</div>
     <div id="rdResults"></div>
     ${!tag && lib.stations.length ? `<section class="shelf"><div class="shelf-head"><h2>Tus emisoras</h2></div>${stationCards(lib.stations, 'Tus emisoras')}</section>` : ''}
     <div id="rdMain">${skeletonShelves(2)}</div>`;
