@@ -74,10 +74,12 @@ begin
     else update public.usage_window set skips = skips + 1, updated_at = now() where user_id = uid returning * into w; end if;
   end if;
   secs := greatest(0, least(coalesce(p_seconds, 0), 120));
-  if secs > 0 then
-    update public.usage_window set listen_seconds = listen_seconds + secs, updated_at = now() where user_id = uid returning * into w;
+  if secs > 0 then -- never count past the plan's daily allowance
+    update public.usage_window set listen_seconds = case when (lim->>'seconds') is null then listen_seconds + secs else least(listen_seconds + secs, (lim->>'seconds')::int) end, updated_at = now()
+    where user_id = uid returning * into w;
   end if;
   return jsonb_build_object('plan', case when adm then 'admin' else coalesce(pl, 'free') end, 'allowed', allowed,
+    'time_ok', (lim->>'seconds') is null or w.listen_seconds < (lim->>'seconds')::int,
     'listen_seconds', w.listen_seconds, 'skips', w.skips, 'window_start', w.window_start,
     'resets_at', w.window_start + interval '24 hours', 'limits', lim);
 end $$;
@@ -219,3 +221,9 @@ grant execute on function public.can_upload(uuid) to authenticated;
 
 -- the administrator gets every feature
 update public.profiles set plan = 'ultra' where id in (select user_id from public.admins);
+
+-- helper checks are only for signed-in policies, not for anonymous callers
+revoke execute on function public.is_admin_uid(uuid) from public, anon;
+revoke execute on function public.can_custom_avatar(uuid) from public, anon;
+revoke execute on function public.can_upload(uuid) from public, anon;
+grant execute on function public.is_admin_uid(uuid) to authenticated;

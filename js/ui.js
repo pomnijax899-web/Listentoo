@@ -2,6 +2,7 @@
 import { $, esc, fmt, fmtNum, COVER, toast } from './util.js';
 import { lib } from './library.js';
 import { player } from './player.js';
+import { cloud } from './cloud.js';
 
 export const icons = {
   play: '<svg viewBox="0 0 24 24"><path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11.04-6.86a1 1 0 0 0 0-1.72L9.5 4.28A1 1 0 0 0 8 5.14z"/></svg>',
@@ -28,7 +29,44 @@ export const icons = {
   volOff: '<svg viewBox="0 0 24 24"><path d="M4 9.5v5h3.5L12 19V5L7.5 9.5z"/><path d="m16 9.5 5 5M21 9.5l-5 5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>',
   expand: '<svg viewBox="0 0 24 24"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   user: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="4"/><path d="M4 21a8 8 0 0 1 16 0z"/></svg>',
-  radio: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.4"/><path d="M7.8 16.2a6 6 0 0 1 0-8.4M16.2 7.8a6 6 0 0 1 0 8.4M5 19a10 10 0 0 1 0-14M19 5a10 10 0 0 1 0 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>'
+  radio: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.4"/><path d="M7.8 16.2a6 6 0 0 1 0-8.4M16.2 7.8a6 6 0 0 1 0 8.4M5 19a10 10 0 0 1 0-14M19 5a10 10 0 0 1 0 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+  // ---- moods ----
+  bolt: '<svg viewBox="0 0 24 24"><path d="M13.5 2.5 5 13.5h6l-1 8 8.5-11h-6z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  crescent: '<svg viewBox="0 0 24 24"><path d="M19.5 14.6A8 8 0 0 1 9.4 4.5a8 8 0 1 0 10.1 10.1z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M17 3.5v3M15.5 5h3M20.5 8.5v2M19.5 9.5h2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  disco: '<svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 13h14M12 6v14M7.2 8.2c3 1.6 6.6 1.6 9.6 0M7.2 17.8c3-1.6 6.6-1.6 9.6 0M12 2.5V6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  headphones: '<svg viewBox="0 0 24 24"><path d="M4 15v-3a8 8 0 0 1 16 0v3" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><rect x="3.5" y="14" width="4.5" height="6.5" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><rect x="16" y="14" width="4.5" height="6.5" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  hearts: '<svg viewBox="0 0 24 24"><path d="M10 19 3.8 13a4.1 4.1 0 0 1 6.2-5.3A4.1 4.1 0 0 1 16.2 13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M16.5 21 13 17.6a2.3 2.3 0 0 1 3.5-3 2.3 2.3 0 0 1 3.5 3z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  cassette: '<svg viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><circle cx="8.5" cy="11" r="2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><circle cx="15.5" cy="11" r="2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.5 11h3M6.5 19l1.5-3.5h8L17.5 19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  flame: '<svg viewBox="0 0 24 24"><path d="M12 21.5c-4 0-6.5-2.7-6.5-6.2 0-4.6 4.6-6.3 4.2-11.8 3.3 1.8 5.4 4.4 5.6 7.6.7-.7 1.1-1.7 1.2-2.8 1.5 1.5 2.5 3.8 2.5 6.2 0 4-3 7-7 7z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 21.5c-1.8 0-3-1.2-3-2.9 0-2.2 2.1-3 2-5.6 1.9 1 3.8 2.9 3.8 5.4 0 1.8-1.1 3.1-2.8 3.1z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  rain: '<svg viewBox="0 0 24 24"><path d="M7 15.5a4.5 4.5 0 1 1 .9-8.9A6 6 0 0 1 19.3 9 3.3 3.3 0 0 1 18.5 15.5z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="m8 18.5-1 2.5M12.5 18.5l-1 2.5M17 18.5l-1 2.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  leaf: '<svg viewBox="0 0 24 24"><path d="M5 19c0-8 5.5-14 15-14 0 9.5-6 15-14 15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 20c3.5-5 7-8 10.5-10" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  sleep: '<svg viewBox="0 0 24 24"><path d="M14 4h5l-5 6h5M4.5 11h6L4.5 19h6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  // ---- actions ----
+  next2: '<svg viewBox="0 0 24 24"><path d="m6 6 7 6-7 6M13 6l7 6-7 6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  addq: '<svg viewBox="0 0 24 24"><path d="M4 6h12M4 11h12M4 16h7M17 14v6M14 17h6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  person: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.8" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  disc: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="2.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 5.5a6.5 6.5 0 0 1 6.5 6.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  link: '<svg viewBox="0 0 24 24"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3A4.5 4.5 0 0 0 13 4.6l-1 1M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M9.5 7V4.5h5V7M6 7l1 13h10l1-13M10 11v5M14 11v5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  close: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  lock: '<svg viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  globe: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 12h18M12 3c2.6 2.7 3.8 5.7 3.8 9s-1.2 6.3-3.8 9c-2.6-2.7-3.8-5.7-3.8-9S9.4 5.7 12 3z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  edit: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="m13.5 6.5 4 4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  upload: '<svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4.5 15v4.5h15V15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  camera: '<svg viewBox="0 0 24 24"><path d="M4 8h3l1.8-2.5h6.4L17 8h3v11H4z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="13.5" r="3.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  sort: '<svg viewBox="0 0 24 24"><path d="M7 4v16M3.5 16.5 7 20l3.5-3.5M17 20V4M13.5 7.5 17 4l3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  back: '<svg viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  eye: '<svg viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  swap: '<svg viewBox="0 0 24 24"><path d="M4 8h14M14 4l4 4-4 4M20 16H6M10 12l-4 4 4 4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  spark: '<svg viewBox="0 0 24 24"><path d="M12 2.5c.6 4.6 2.9 6.9 7.5 7.5-4.6.6-6.9 2.9-7.5 7.5-.6-4.6-2.9-6.9-7.5-7.5 4.6-.6 6.9-2.9 7.5-7.5z"/><path d="M19 15.5c.25 1.9 1.1 2.75 3 3-1.9.25-2.75 1.1-3 3-.25-1.9-1.1-2.75-3-3 1.9-.25 2.75-1.1 3-3z"/></svg>',
+  infinity: '<svg viewBox="0 0 24 24"><path d="M12 12c-2-3-3.6-4.5-5.5-4.5a4.5 4.5 0 0 0 0 9c1.9 0 3.5-1.5 5.5-4.5zm0 0c2 3 3.6 4.5 5.5 4.5a4.5 4.5 0 0 0 0-9c-1.9 0-3.5 1.5-5.5 4.5z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  hourglass: '<svg viewBox="0 0 24 24"><path d="M6.5 3h11M6.5 21h11M7.5 3c0 5 4.5 6 4.5 9s-4.5 4-4.5 9M16.5 3c0 5-4.5 6-4.5 9s4.5 4 4.5 9" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  crown: '<svg viewBox="0 0 24 24"><path d="M3 8.5 7.5 12 12 5l4.5 7L21 8.5 19.2 18H4.8z"/><rect x="4.6" y="19" width="14.8" height="2.2" rx="1"/></svg>',
+  gem: '<svg viewBox="0 0 24 24"><path d="M6 3.5h12l3.5 5L12 21 2.5 8.5z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 8.5h19M9 3.5 7.5 8.5 12 21l4.5-12.5L15 3.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  prism: '<svg viewBox="0 0 24 24"><path d="M12 2.5 21 19.5H3z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2.5v17M7.5 11l4.5 8.5 4.5-8.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  medal: '<svg viewBox="0 0 24 24"><circle cx="12" cy="14.5" r="6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.5 9.5 6 2.5h4l2 5 2-5h4l-2.5 7M12 12l.9 1.8 2 .3-1.45 1.4.35 2L12 16.6l-1.8.9.35-2L9.1 14.1l2-.3z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  shield: '<svg viewBox="0 0 24 24"><path d="M12 2.8 19.5 6v6c0 4.6-3.2 8-7.5 9.2C7.7 20 4.5 16.6 4.5 12V6z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="m8.8 12 2.2 2.2 4.4-4.6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  wave: '<svg viewBox="0 0 24 24"><path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 7v10M21 12h0" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>'
 };
 
 export const eqBars = '<span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>';
@@ -49,7 +87,7 @@ export function trackList(tracks, { label = '', href = '', album = true, cover =
     const liked = lib.isLiked(t), playing = curId === t.id;
     return `<div class="trow${playing ? ' playing' : ''}" data-i="${i}" data-id="${esc(t.id)}"${draggable ? ' draggable="true"' : ''} tabindex="0" style="--d:${Math.min(i, 14) * 22}ms">
       <div class="c-num">${numbers ? `<span class="n">${String(i + 1).padStart(2, '0')}</span>` : ''}<span class="eqw">${eqBars}</span><span class="rowplay">${icons.play}</span></div>
-      <div class="c-title">${cover ? img(t.cover, 'tcover') : ''}<div class="tt"><div class="tname ellipsis">${esc(t.title)}</div><div class="tart ellipsis">${explicit(t)}${t.artistId ? `<a href="#/artista/${t.artistId}">${esc(t.artist)}</a>` : esc(t.artist)}${t.live ? '<span class="badge-live">En directo</span>' : (t.src === 'audius' || t.src === 'jamendo') ? '<span class="badge-full" title="Canción completa">Completa</span>' : ''}</div></div></div>
+      <div class="c-title">${cover ? img(t.cover, 'tcover') : ''}<div class="tt"><div class="tname ellipsis">${esc(t.title)}</div><div class="tart ellipsis">${explicit(t)}${t.artistId ? `<a href="#/artista/${t.artistId}">${esc(t.artist)}</a>` : esc(t.artist)}${t.live ? '<span class="badge-live">En directo</span>' : t.src === 'upload' ? `<span class="badge-up${t.isPublic ? '' : ' priv'}">${t.isPublic ? icons.globe + 'Comunidad' : icons.lock + 'Privada'}</span>` : (t.src === 'audius' || t.src === 'jamendo') ? '<span class="badge-full" title="Canción completa">Completa</span>' : ''}</div></div></div>
       ${album ? `<div class="c-album ellipsis">${t.albumId ? `<a href="#/album/${t.albumId}">${esc(t.album)}</a>` : esc(t.album || '')}</div>` : ''}
       ${added ? `<div class="c-added">${t.added ? new Date(t.added).toLocaleDateString('es', { day: 'numeric', month: 'short' }) : ''}</div>` : ''}
       <div class="c-like"><button class="likebtn${liked ? ' on' : ''}" data-act="like" aria-label="Me gusta">${liked ? icons.heartOn : icons.heart}</button></div>
@@ -82,8 +120,18 @@ export function trackCards(tracks, label) {
   return `<div class="hscroll" data-list="${k}">${tracks.map((t, i) => `<div class="tcard" data-tilt data-track-i="${i}" tabindex="0"><div class="p-art">${img(t.cover, 'art')}<span class="fab">${icons.play}</span></div><div class="ct ellipsis">${esc(t.title)}</div><div class="cs ellipsis">${esc(t.artist)}</div></div>`).join('')}</div>`;
 }
 
+/* songs uploaded by Ultra members, with the uploader's framed avatar */
+export function communityCards(tracks, label) {
+  if (!tracks.length) return '';
+  const k = registerList(tracks, { label });
+  return `<div class="hscroll community" data-list="${k}">${tracks.map((t, i) => `<div class="tcard ccard" data-tilt data-track-i="${i}" tabindex="0">
+    <div class="p-art">${t.cover ? img(t.cover, 'art') : `<div class="art gen-art" style="--h:${hueOf(t.title + t.artist)}">${icons.wave}</div>`}<span class="fab">${icons.play}</span></div>
+    <div class="ct ellipsis">${esc(t.title)}</div><div class="cs ellipsis">${esc(t.artist || t.owner)}</div>
+    <div class="cc-by">${avatarOf({ name: t.owner, hue: t.ownerHue, url: t.ownerAvatar, plan: t.ownerPlan, admin: t.ownerAdmin }, 'xs')}<span class="ellipsis">${esc(t.owner)}</span></div></div>`).join('')}</div>`;
+}
+
 /* live radio stations as playable cards */
-const initials = n => (n || '?').replace(/[^\p{L}\p{N} ]/gu, '').split(' ').filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '♪';
+const initials = n => (n || '?').replace(/[^\p{L}\p{N} ]/gu, '').split(' ').filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase() || 'FM';
 export const stationArt = (s, cls = '') => `<div class="st-art ${cls}" style="--h:${hueOf(s.title)}"><b>${esc(initials(s.title))}</b>${s.cover ? `<img class="st-logo" src="${esc(s.cover)}" alt="" loading="lazy" decoding="async" onload="if(this.naturalWidth<24)this.hidden=true" onerror="this.hidden=true">` : ''}</div>`;
 export const hueOf = str => [...(str || '')].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
 export function stationCards(list, label, { wrap = false } = {}) {
@@ -131,26 +179,29 @@ export async function share(title, hash) {
 export function trackMenu(t, at, { playlistId } = {}) {
   if (t.live) {
     return showMenu([
-      { icon: lib.isLiked(t) ? '♥' : '♡', text: lib.isLiked(t) ? 'Quitar de tus emisoras' : 'Guardar emisora', run: () => lib.toggleLike(t) },
-      { icon: '☰', text: 'Añadir a la cola', run: () => player.addToQueue(t) },
-      { icon: '📻', text: 'Ir a la radio', run: () => { location.hash = '#/radio'; } }
+      { icon: lib.isLiked(t) ? icons.heartOn : icons.heart, text: lib.isLiked(t) ? 'Quitar de tus emisoras' : 'Guardar emisora', run: () => lib.toggleLike(t) },
+      { icon: icons.addq, text: 'Añadir a la cola', run: () => player.addToQueue(t) },
+      { icon: icons.radio, text: 'Ir a la radio', run: () => { location.hash = '#/radio'; } }
     ], at);
   }
   const items = [
-    { icon: '⏭', text: 'Que suene a continuación', run: () => player.playNext(t) },
-    { icon: '☰', text: 'Añadir a la cola', run: () => player.addToQueue(t) },
-    ...(t.src !== 'local' ? [{ icon: lib.isLiked(t) ? '♥' : '♡', text: lib.isLiked(t) ? 'Quitar de Me gusta' : 'Guardar en Me gusta', run: () => lib.toggleLike(t) }] : []),
+    { icon: icons.next2, text: 'Que suene a continuación', run: () => player.playNext(t) },
+    { icon: icons.addq, text: 'Añadir a la cola', run: () => player.addToQueue(t) },
+    ...(t.src !== 'local' ? [{ icon: lib.isLiked(t) ? icons.heartOn : icons.heart, text: lib.isLiked(t) ? 'Quitar de Me gusta' : 'Guardar en Me gusta', run: () => lib.toggleLike(t) }] : []),
     '-', { label: 'Añadir a playlist' },
-    { icon: '＋', text: 'Nueva playlist', run: async () => { const n = await prompt('Nueva playlist', '', 'Crear'); if (n !== null) { lib.createPlaylist(n, [t]); toast('Playlist creada'); } } },
-    ...lib.playlists.slice(0, 12).map(p => ({ icon: '♪', text: p.name, run: () => lib.addToPlaylist(p.id, t) })),
+    { icon: icons.plus, text: 'Nueva playlist', run: async () => { const n = await prompt('Nueva playlist', '', 'Crear'); if (n !== null) { lib.createPlaylist(n, [t]); toast('Playlist creada'); } } },
+    ...lib.playlists.slice(0, 12).map(p => ({ icon: icons.music, text: p.name, run: () => lib.addToPlaylist(p.id, t) })),
     '-'
   ];
-  if (t.artistId) items.push({ icon: '◎', text: 'Ir al artista', run: () => { location.hash = `#/artista/${t.artistId}`; } });
-  if (t.albumId) items.push({ icon: '◉', text: 'Ir al álbum', run: () => { location.hash = `#/album/${t.albumId}`; } });
-  if (t.artistId) items.push({ icon: '📻', text: 'Radio de esta canción', run: () => startRadio(t) });
-  if (t.albumId) items.push({ icon: '↗', text: 'Compartir', run: () => share(`${t.title} · ${t.artist}`, `#/album/${t.albumId}`) });
-  if (playlistId) items.push('-', { icon: '✕', text: 'Quitar de esta playlist', run: () => lib.removeFromPlaylist(playlistId, t.id) });
-  if (t.src === 'local') items.push('-', { icon: '🗑', text: 'Eliminar archivo', run: () => lib.deleteLocal(t) });
+  if (t.artistId) items.push({ icon: icons.person, text: 'Ir al artista', run: () => { location.hash = `#/artista/${t.artistId}`; } });
+  if (t.albumId) items.push({ icon: icons.disc, text: 'Ir al álbum', run: () => { location.hash = `#/album/${t.albumId}`; } });
+  if (t.artistId) items.push({ icon: icons.radio, text: 'Radio de esta canción', run: () => startRadio(t) });
+  if (t.albumId) items.push({ icon: icons.share, text: 'Compartir', run: () => share(`${t.title} · ${t.artist}`, `#/album/${t.albumId}`) });
+  if (playlistId) items.push('-', { icon: icons.close, text: 'Quitar de esta playlist', run: () => lib.removeFromPlaylist(playlistId, t.id) });
+  if (t.src === 'local') items.push('-', { icon: icons.trash, text: 'Eliminar archivo', run: () => lib.deleteLocal(t) });
+  if (t.src === 'upload' && cloud.user && t.ownerId === cloud.user.id) items.push('-', { label: 'Tu subida' },
+    { icon: t.isPublic ? icons.lock : icons.globe, text: t.isPublic ? 'Hacer privada' : 'Publicar en Comunidad', run: async () => { try { await cloud.updateUpload(t.uploadId, { is_public: !t.isPublic }); t.isPublic = !t.isPublic; toast(t.isPublic ? 'Ahora es pública' : 'Ahora solo tú puedes escucharla'); dispatchEvent(new Event('uploads')); } catch (e) { toast(e.message); } } },
+    { icon: icons.trash, text: 'Eliminar subida', run: async () => { if (!await confirmBox('¿Eliminar esta canción?', `Se borrará «${t.title}» para siempre.`, 'Eliminar')) return; try { await cloud.deleteUpload(t); toast('Subida eliminada'); dispatchEvent(new Event('uploads')); } catch (e) { toast(e.message); } } });
   showMenu(items, at);
 }
 export async function startRadio(t) {
@@ -194,4 +245,31 @@ export function confirmBox(title, text, ok = 'Eliminar') {
   });
 }
 export const fans = n => n ? `${fmtNum(n)} seguidores` : '';
-export const avatar = (name = '?', hue = 275, cls = '') => `<span class="avatar ${cls}" style="--h:${hue}">${esc((name || '?').trim().charAt(0).toUpperCase())}</span>`;
+export const PLANS_UI = {
+  free: { name: 'Free', icon: 'wave' }, pro: { name: 'Pro', icon: 'medal' },
+  max: { name: 'Max', icon: 'gem' }, ultra: { name: 'Ultra', icon: 'prism' }
+};
+// Avatar with the plan's frame: gold (Pro), diamond (Max), polished obsidian (Ultra); the admin also wears a crown.
+export function avatarOf({ name = '?', hue = 275, url = '', plan = 'free', admin = false } = {}, size = 'md') {
+  const tier = admin ? 'ultra' : (PLANS_UI[plan] ? plan : 'free');
+  const photo = url && (admin || plan === 'max' || plan === 'ultra');
+  const ch = esc((name || '?').trim().charAt(0).toUpperCase() || '?');
+  return `<span class="av av-${size} tier-${tier}${admin ? ' is-admin' : ''}" style="--h:${hue}"><span class="av-ring"></span><span class="av-core">${photo ? `<img src="${esc(url)}" alt="" loading="lazy" decoding="async">` : `<b>${ch}</b>`}</span>${admin ? `<span class="av-crown" title="Administrador">${icons.crown}</span>` : ''}</span>`;
+}
+export const planChip = (plan, admin) => admin
+  ? `<span class="plan-chip tier-admin">${icons.crown}Admin</span>`
+  : `<span class="plan-chip tier-${plan}">${icons[PLANS_UI[plan]?.icon || 'wave']}${PLANS_UI[plan]?.name || 'Free'}</span>`;
+export const avatar = (name = '?', hue = 275, cls = '') => avatarOf({ name, hue }, cls === 'sm' ? 'sm' : 'md');
+
+/* little particle burst (likes, plan upgrades) */
+export function burst(x, y, { n = 14, colors = ['var(--accent)', 'var(--accent2)', '#fff'] } = {}) {
+  if (document.documentElement.dataset.fx !== 'on' && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const box = document.createElement('div'); box.className = 'burst'; box.style.left = x + 'px'; box.style.top = y + 'px';
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + Math.random() * .4, d = 26 + Math.random() * 34, sp = document.createElement('i');
+    sp.style.setProperty('--dx', (Math.cos(a) * d).toFixed(1) + 'px'); sp.style.setProperty('--dy', (Math.sin(a) * d).toFixed(1) + 'px');
+    sp.style.background = colors[i % colors.length]; sp.style.animationDelay = (Math.random() * 60) + 'ms';
+    box.appendChild(sp);
+  }
+  document.body.appendChild(box); setTimeout(() => box.remove(), 900);
+}
