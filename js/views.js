@@ -547,6 +547,7 @@ export async function profile() {
         <div class="glass-card"><h3>Reproducción</h3>
           <label class="switch"><span><b>Reproducción automática</b><small>Al terminar, sigue con canciones parecidas.</small></span><input type="checkbox" id="pfAuto" ${lib.settings.autoplay ? 'checked' : ''}><i></i></label>
           <label class="switch"><span><b>Canciones completas vía YouTube</b><small>Usa el reproductor oficial, aislado: nunca abre pestañas ni ventanas.</small></span><input type="checkbox" id="pfYt" ${lib.settings.youtube !== false ? 'checked' : ''}><i></i></label>
+          <label class="switch"><span><b>Mostrar el vídeo</b><small>Desactivado, solo suena el audio y ves la portada. En iPhone puede aparecer un momento para que lo toques y se active el sonido.</small></span><input type="checkbox" id="pfYtVideo" ${lib.settings.ytVideo ? 'checked' : ''}><i></i></label>
           <label class="switch"><span><b>Notificaciones de canción</b><small>Aviso con controles al cambiar de canción cuando la app está en segundo plano.</small></span><input type="checkbox" id="pfNotify" ${lib.settings.notify ? 'checked' : ''}><i></i></label></div>
         <div class="glass-card"><h3>Datos</h3><p class="muted small">Tu biblioteca se guarda en tu cuenta y se sincroniza en tiempo real.</p>
           <div class="row-btns"><button class="pill ghost" id="pfExp">Exportar copia</button><button class="pill ghost" id="pfImp">Importar copia</button><button class="pill ghost" id="pfHist">Borrar historial</button></div>
@@ -577,6 +578,7 @@ export async function profile() {
   $('#pfPw').onclick = () => changePassword();
   $('#pfAuto').onchange = e => lib.setSetting('autoplay', e.target.checked);
   $('#pfYt').onchange = e => lib.setSetting('youtube', e.target.checked);
+  $('#pfYtVideo').onchange = e => lib.setSetting('ytVideo', e.target.checked);
   $('#pfNotify').onchange = async e => {
     if (e.target.checked) {
       if (!('Notification' in window)) { toast('Este dispositivo no admite notificaciones web'); e.target.checked = false; return; }

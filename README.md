@@ -14,7 +14,7 @@ App de música web e instalable (PWA) con cuentas de usuario, sincronización en
 | **Subidas Ultra** | Audios y canciones subidos por cuentas Ultra, públicos (Comunidad) o privados | **Completa** (enlace firmado de 4 h) |
 | **Tus archivos** | Música del dispositivo | **Completa** y sin conexión |
 
-Con audio nativo (Audius, radio, Jamendo, archivos y vistas previas) la música sigue sonando con la pantalla bloqueada y aparece en la Dynamic Island, en HyperOS y en los controles del sistema. Con YouTube, el vídeo tiene que estar visible (lo exigen sus normas) y la mayoría de móviles lo pausan al bloquear la pantalla.
+Con audio nativo (Audius, radio, Jamendo, archivos y vistas previas) la música sigue sonando con la pantalla bloqueada y aparece en la Dynamic Island, en HyperOS y en los controles del sistema. Con YouTube, por defecto solo suena el audio y se ve la portada: el reproductor sigue funcionando sin mostrarse. El vídeo se puede activar en *Tú → Reproducción → Mostrar el vídeo*. La mayoría de móviles pausan YouTube al bloquear la pantalla.
 
 ## Planes
 Todos sin anuncios. El tiempo y los saltos se cuentan en una ventana de 24 h que empieza con la primera escucha.
